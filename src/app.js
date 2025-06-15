@@ -22,13 +22,19 @@ initializeDB();
 
 // Enhanced CORS Configuration
 const corsOptions = {
-  origin: [
-    process.env.FRONTEND_URL || 'http://localhost:5174',
-    'https://*.vercel.app',
-    new RegExp(`${process.env.VERCEL_URL?.replace('https://', '.*')}`) // For Vercel preview URLs
-  ].filter(Boolean), // Remove any undefined values
+  origin: process.env.NODE_ENV === 'development' 
+    ? true  // Allow all origins in dev
+    : [
+        process.env.FRONTEND_URL,
+        'https://*.vercel.app',
+        new RegExp(`${process.env.VERCEL_URL?.replace('https://', '.*')}`)
+      ].filter(Boolean),
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
   optionsSuccessStatus: 200
 };
+
 app.use(cors(corsOptions));
 
 // Middleware
