@@ -23,7 +23,7 @@ initializeDB();
 // Enhanced CORS Configuration
 const corsOptions = {
   origin: [
-    process.env.FRONTEND_URL || 'http://localhost:3000',
+    process.env.FRONTEND_URL || 'http://localhost:5174',
     'https://*.vercel.app',
     new RegExp(`${process.env.VERCEL_URL?.replace('https://', '.*')}`) // For Vercel preview URLs
   ].filter(Boolean), // Remove any undefined values
