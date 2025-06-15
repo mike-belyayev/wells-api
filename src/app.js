@@ -1,52 +1,105 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const mongoose = require('mongoose'); // Added missing import
 const connectDB = require('./config/db');
 
 const app = express();
 
-// Connect to Database (optional for Vercel serverless)
-if (process.env.NODE_ENV !== 'production') {
-  connectDB();
-}
+// Database Connection Logic
+const initializeDB = () => {
+  if (process.env.VERCEL) {
+    // Serverless-friendly connection for Vercel
+    connectDB().catch(err => {
+      console.error('Vercel DB connection error:', err);
+    });
+  } else {
+    // Regular connection for local/dev
+    connectDB();
+  }
+};
+initializeDB();
 
-// CORS Configuration
-app.use(cors({
+// Enhanced CORS Configuration
+const corsOptions = {
   origin: [
     process.env.FRONTEND_URL || 'http://localhost:3000',
-    'https://*.vercel.app'
-  ]
-}));
+    'https://*.vercel.app',
+    new RegExp(`${process.env.VERCEL_URL?.replace('https://', '.*')}`) // For Vercel preview URLs
+  ].filter(Boolean), // Remove any undefined values
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
 
 // Middleware
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // API Routes
-app.get('/api', (req, res) => {
+app.get(['/', '/api'], (req, res) => {  // Handle both root and /api
   res.json({ 
     message: 'API is working',
+    environment: process.env.NODE_ENV || 'development',
     endpoints: {
       health: '/api/health',
-      // Add your other endpoints here
-    }
+      // Your other endpoints here
+    },
+    dbStatus: mongoose.connection?.readyState === 1 ? 'Connected' : 'Disconnected'
   });
 });
 
 app.get('/api/health', (req, res) => {
+  const dbStatus = mongoose.connection?.readyState;
   res.json({ 
     status: 'OK',
-    dbState: mongoose.connection?.readyState || 0,
-    environment: process.env.NODE_ENV || 'development'
+    dbState: dbStatus,
+    dbStatusText: getDbStatusText(dbStatus),
+    timestamp: new Date().toISOString()
   });
 });
 
-// 404 Handler
-app.use((req, res) => {
+// Helper function for DB status
+function getDbStatusText(status) {
+  const states = {
+    0: 'Disconnected',
+    1: 'Connected',
+    2: 'Connecting',
+    3: 'Disconnecting',
+    99: 'Unknown'
+  };
+  return states[status] || states[99];
+}
+
+// Enhanced 404 Handler
+app.use((req, res, next) => {
   res.status(404).json({ 
-    message: 'Endpoint not found',
-    try: '/api' 
+    error: 'Endpoint not found',
+    requestedPath: req.path,
+    availableEndpoints: {
+      root: '/',
+      apiRoot: '/api',
+      healthCheck: '/api/health'
+    }
   });
 });
 
-// Export for Vercel
-module.exports = app;
+// Error Handler
+app.use((err, req, res, next) => {
+  console.error('API Error:', err.stack);
+  res.status(500).json({
+    error: 'Internal Server Error',
+    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
+  });
+});
+
+// Export for both local and Vercel
+if (process.env.VERCEL) {
+  module.exports = app;
+} else {
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`Server running on port ${PORT}`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`DB Status: ${getDbStatusText(mongoose.connection?.readyState)}`);
+  });
+}
