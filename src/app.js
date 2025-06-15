@@ -1,7 +1,6 @@
 require('dotenv').config();
 const express = require('express');
-const cors = require('cors');
-const mongoose = require('mongoose'); // Added missing import
+const mongoose = require('mongoose');
 const connectDB = require('./config/db');
 
 const app = express();
@@ -20,22 +19,33 @@ const initializeDB = () => {
 };
 initializeDB();
 
-// Enhanced CORS Configuration
-const corsOptions = {
-  origin: process.env.NODE_ENV === 'development' 
-    ? true  // Allow all origins in dev
-    : [
-        process.env.FRONTEND_URL,
-        'https://*.vercel.app',
-        new RegExp(`${process.env.VERCEL_URL?.replace('https://', '.*')}`)
-      ].filter(Boolean),
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-  optionsSuccessStatus: 200
-};
+// Enhanced CORS Middleware (replaces cors package)
+app.use((req, res, next) => {
+  const allowedOrigins = [
+    'https://wells-logistics.vercel.app',
+    'http://localhost:5174',
+    process.env.FRONTEND_URL,
+    ...(process.env.NODE_ENV === 'development' ? ['http://localhost:*'] : [])
+  ].filter(Boolean);
 
-app.use(cors(corsOptions));
+  const origin = req.headers.origin;
+  if (allowedOrigins.some(allowedOrigin => 
+    origin?.match(new RegExp(allowedOrigin.replace('*', '.*')))
+  )) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+  }
+
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Vary', 'Origin'); // Important for caching
+
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(204);
+  }
+  next();
+});
 
 // Middleware
 app.use(express.json());
@@ -44,9 +54,24 @@ app.use(express.urlencoded({ extended: true }));
 // API Routes
 app.use('/api/users', require('./routes/userRoutes'));
 
+// Health Check Endpoint
+app.get('/api/health', (req, res) => {
+  const dbStatus = mongoose.connection?.readyState;
+  res.json({ 
+    status: 'OK',
+    dbState: dbStatus,
+    dbStatusText: getDbStatusText(dbStatus),
+    timestamp: new Date().toISOString(),
+    cors: {
+      origin: req.headers.origin,
+      allowed: res.getHeader('Access-Control-Allow-Origin')
+    }
+  });
+});
+
+// Root Endpoint
 app.get(['/', '/api'], async (req, res) => {
   try {
-    // Lazy connect if disconnected
     if (mongoose.connection.readyState !== 1) {
       await connectDB();
     }
@@ -55,10 +80,9 @@ app.get(['/', '/api'], async (req, res) => {
       message: 'API is working',
       environment: process.env.NODE_ENV || 'development',
       endpoints: {
-        health: '/api/health'
-      },
-      dbStatus: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected',
-      dbStatusText: getDbStatusText(mongoose.connection.readyState)
+        health: '/api/health',
+        users: '/api/users'
+      }
     });
   } catch (err) {
     res.status(500).json({
@@ -66,16 +90,6 @@ app.get(['/', '/api'], async (req, res) => {
       details: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
-});
-
-app.get('/api/health', (req, res) => {
-  const dbStatus = mongoose.connection?.readyState;
-  res.json({ 
-    status: 'OK',
-    dbState: dbStatus,
-    dbStatusText: getDbStatusText(dbStatus),
-    timestamp: new Date().toISOString()
-  });
 });
 
 // Helper function for DB status
@@ -90,20 +104,14 @@ function getDbStatusText(status) {
   return states[status] || states[99];
 }
 
-// Enhanced 404 Handler
+// Error Handlers
 app.use((req, res, next) => {
   res.status(404).json({ 
     error: 'Endpoint not found',
-    requestedPath: req.path,
-    availableEndpoints: {
-      root: '/',
-      apiRoot: '/api',
-      healthCheck: '/api/health'
-    }
+    requestedPath: req.path
   });
 });
 
-// Error Handler
 app.use((err, req, res, next) => {
   console.error('API Error:', err.stack);
   res.status(500).json({
@@ -112,7 +120,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Export for both local and Vercel
+// Server Export
 if (process.env.VERCEL) {
   module.exports = app;
 } else {
@@ -120,6 +128,10 @@ if (process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`DB Status: ${getDbStatusText(mongoose.connection?.readyState)}`);
+    console.log('Allowed CORS origins:', [
+      'https://wells-logistics.vercel.app',
+      'http://localhost:5174',
+      process.env.FRONTEND_URL
+    ].filter(Boolean).join(', '));
   });
 }
