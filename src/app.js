@@ -36,16 +36,28 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // API Routes
-app.get(['/', '/api'], (req, res) => {  // Handle both root and /api
-  res.json({ 
-    message: 'API is working',
-    environment: process.env.NODE_ENV || 'development',
-    endpoints: {
-      health: '/api/health',
-      // Your other endpoints here
-    },
-    dbStatus: mongoose.connection?.readyState === 1 ? 'Connected' : 'Disconnected'
-  });
+app.get(['/', '/api'], async (req, res) => {
+  try {
+    // Lazy connect if disconnected
+    if (mongoose.connection.readyState !== 1) {
+      await connectDB();
+    }
+    
+    res.json({ 
+      message: 'API is working',
+      environment: process.env.NODE_ENV || 'development',
+      endpoints: {
+        health: '/api/health'
+      },
+      dbStatus: mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected',
+      dbStatusText: getDbStatusText(mongoose.connection.readyState)
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: 'Database connection error',
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
 });
 
 app.get('/api/health', (req, res) => {
