@@ -3,9 +3,9 @@ require('dotenv').config();
 
 let cachedDb = null;
 let keepAliveTimer = null;
+let isShuttingDown = false;
 
 async function connectDB() {
-  // Return cached connection if available
   if (cachedDb) {
     console.log('Using existing database connection');
     return cachedDb;
@@ -15,43 +15,46 @@ async function connectDB() {
     const connectionOptions = {
       maxPoolSize: 10,
       serverSelectionTimeoutMS: 5000,
-      socketTimeoutMS: 45000,
-      heartbeatFrequencyMS: 30000 // Added for better keepalive
+      socketTimeoutMS: 45000
     };
 
-    // Debug mode in development
+    // Enable debug mode in development
     if (process.env.NODE_ENV === 'development') {
       mongoose.set('debug', true);
-      console.log('Mongoose debug mode enabled');
     }
 
     const connection = await mongoose.connect(process.env.MONGODB_URI, connectionOptions);
-    console.log('MongoDB Connected successfully');
-
-    // Serverless-specific optimizations
-    if (process.env.VERCEL) {
-      console.log('Running in Vercel environment - applying serverless optimizations');
-      setupServerlessKeepAlive();
-    } else {
-      setupStandardKeepAlive();
+    console.log('MongoDB Connected...');
+    
+    // Setup keep-alive only if not in production
+    if (process.env.NODE_ENV !== 'production') {
+      setupKeepAlive();
     }
 
     cachedDb = connection;
     return connection;
   } catch (err) {
     console.error('Database connection error:', err.message);
-    
-    // Don't exit process in serverless environment
     if (!process.env.VERCEL) {
       process.exit(1);
     }
-    throw err; // Re-throw for serverless functions to handle
+    throw err;
   }
+}
+
+function setupKeepAlive() {
+  keepAliveTimer = setInterval(() => {
+    if (mongoose.connection.readyState === 1) {
+      mongoose.connection.db.admin().ping((err) => {
+        if (err) console.error('Keep-alive ping failed:', err);
+      });
+    }
+  }, 60000);
 }
 
 // Connection event handlers
 mongoose.connection.on('connected', () => {
-  console.log('Mongoose connected to DB cluster:', mongoose.connection.host);
+  console.log('Mongoose connected to DB');
 });
 
 mongoose.connection.on('error', (err) => {
@@ -65,53 +68,28 @@ mongoose.connection.on('disconnected', () => {
   if (keepAliveTimer) clearInterval(keepAliveTimer);
 });
 
-// Keep-alive for serverless environments
-function setupServerlessKeepAlive() {
-  if (keepAliveTimer) clearInterval(keepAliveTimer);
-  
-  keepAliveTimer = setInterval(() => {
-    if (mongoose.connection.readyState === 1) {
-      mongoose.connection.db.admin().ping((err) => {
-        if (err) {
-          console.error('Keep-alive ping failed:', err);
-          // Attempt to reconnect
-          mongoose.connection.close().then(() => connectDB());
-        }
-      });
-    }
-  }, 30000); // More frequent pings for serverless
-}
-
-// Standard keep-alive for non-serverless
-function setupStandardKeepAlive() {
-  if (keepAliveTimer) clearInterval(keepAliveTimer);
-  
-  keepAliveTimer = setInterval(() => {
-    if (mongoose.connection.readyState === 1) {
-      mongoose.connection.db.admin().ping((err) => {
-        if (err) console.error('Standard keep-alive ping failed:', err);
-      });
-    }
-  }, 60000);
-}
-
-// Graceful shutdown
+// Graceful shutdown handler
 function gracefulShutdown() {
+  if (isShuttingDown) return;
+  isShuttingDown = true;
+
   return mongoose.connection.close()
     .then(() => {
       console.log('Mongoose connection closed gracefully');
-      if (keepAliveTimer) clearInterval(keepAliveTimer);
+      if (keepAliveTimer) {
+        clearInterval(keepAliveTimer);
+        keepAliveTimer = null;
+      }
     })
     .catch(err => {
       console.error('Error closing Mongoose connection:', err);
     });
 }
 
-// Handle different shutdown scenarios
+// Register shutdown handlers only in non-Vercel environment
 if (!process.env.VERCEL) {
-  process.on('SIGINT', gracefulShutdown);
-  process.on('SIGTERM', gracefulShutdown);
-  process.on('exit', gracefulShutdown);
+  process.once('SIGINT', gracefulShutdown);
+  process.once('SIGTERM', gracefulShutdown);
 }
 
 module.exports = connectDB;
