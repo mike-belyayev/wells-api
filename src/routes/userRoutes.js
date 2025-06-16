@@ -6,7 +6,7 @@ const User = require('../models/userModel');
 // @desc    Create a new user
 router.post('/', async (req, res) => {
   try {
-    const { userEmail, firstName, lastName, isAdmin } = req.body;
+    const { userEmail, firstName, lastName, isAdmin, homeLocation } = req.body;
 
     // Check if user already exists
     const existingUser = await User.findOne({ userEmail });
@@ -18,7 +18,8 @@ router.post('/', async (req, res) => {
       userEmail,
       firstName,
       lastName,
-      isAdmin: isAdmin || false // Default to false if not provided
+      isAdmin: isAdmin || false, // Default to false if not provided
+      homeLocation
     });
 
     const savedUser = await newUser.save();
@@ -48,11 +49,11 @@ router.get('/:email', async (req, res) => {
 // @desc    Update user by email
 router.put('/:email', async (req, res) => {
   try {
-    const { firstName, lastName, isAdmin } = req.body;
+    const { firstName, lastName, isAdmin, homeLocation } = req.body;
     
     const updatedUser = await User.findOneAndUpdate(
       { userEmail: req.params.email },
-      { $set: { firstName, lastName, isAdmin } },
+      { $set: { firstName, lastName, isAdmin, homeLocation } },
       { new: true, runValidators: true }
     );
 

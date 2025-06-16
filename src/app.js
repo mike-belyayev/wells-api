@@ -53,6 +53,8 @@ app.use(express.urlencoded({ extended: true }));
 
 // API Routes
 app.use('/api/users', require('./routes/userRoutes'));
+app.use('/api/passengers', require('./routes/passengerRoutes'));
+app.use('/api/trips', require('./routes/tripRoutes'));
 
 // Health Check Endpoint
 app.get('/api/health', (req, res) => {
@@ -65,6 +67,11 @@ app.get('/api/health', (req, res) => {
     cors: {
       origin: req.headers.origin,
       allowed: res.getHeader('Access-Control-Allow-Origin')
+    },
+    endpoints: {
+      users: '/api/users',
+      passengers: '/api/passengers',
+      trips: '/api/trips'
     }
   });
 });
@@ -81,7 +88,9 @@ app.get(['/', '/api'], async (req, res) => {
       environment: process.env.NODE_ENV || 'development',
       endpoints: {
         health: '/api/health',
-        users: '/api/users'
+        users: '/api/users',
+        passengers: '/api/passengers',
+        trips: '/api/trips'
       }
     });
   } catch (err) {
@@ -133,5 +142,9 @@ if (process.env.VERCEL) {
       'http://localhost:5174',
       process.env.FRONTEND_URL
     ].filter(Boolean).join(', '));
+    console.log('Available routes:');
+    console.log('- /api/users');
+    console.log('- /api/passengers');
+    console.log('- /api/trips');
   });
 }
