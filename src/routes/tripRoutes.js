@@ -6,12 +6,12 @@ const Trip = require('../models/tripModel');
 // @desc    Create a new trip
 router.post('/', async (req, res) => {
   try {
-    const { passengerId, fromOrigin, toDestination, tripDate } = req.body;
+    const { passengerId, fromOrigin, toDestination, tripDate, confirmed } = req.body;
 
     // Validate required fields
-    if (!passengerId || !fromOrigin || !toDestination || !tripDate) {
+    if (!passengerId || !fromOrigin || !toDestination || !tripDate || typeof confirmed === 'undefined') {
       return res.status(400).json({ 
-        error: 'All fields (passengerId, fromOrigin, toDestination, tripDate) are required' 
+        error: 'All fields (passengerId, fromOrigin, toDestination, tripDate, confirmed) are required' 
       });
     }
 
@@ -19,7 +19,8 @@ router.post('/', async (req, res) => {
       passengerId,
       fromOrigin,
       toDestination,
-      tripDate
+      tripDate,
+      confirmed
     });
 
     const savedTrip = await newTrip.save();
@@ -79,18 +80,50 @@ router.get('/passenger/:passengerId', async (req, res) => {
 // @desc    Update trip by ID
 router.put('/:id', async (req, res) => {
   try {
-    const { passengerId, fromOrigin, toDestination, tripDate } = req.body;
+    const { passengerId, fromOrigin, toDestination, tripDate, confirmed } = req.body;
 
     // Validate required fields
-    if (!passengerId || !fromOrigin || !toDestination || !tripDate) {
+    if (!passengerId || !fromOrigin || !toDestination || !tripDate || typeof confirmed === 'undefined') {
       return res.status(400).json({ 
-        error: 'All fields (passengerId, fromOrigin, toDestination, tripDate) are required' 
+        error: 'All fields (passengerId, fromOrigin, toDestination, tripDate, confirmed) are required' 
       });
     }
 
     const updatedTrip = await Trip.findByIdAndUpdate(
       req.params.id,
-      { $set: { passengerId, fromOrigin, toDestination, tripDate } },
+      { $set: { passengerId, fromOrigin, toDestination, tripDate, confirmed } },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedTrip) {
+      return res.status(404).json({ error: 'Trip not found' });
+    }
+
+    res.json(updatedTrip);
+  } catch (err) {
+    console.error(err.message);
+    if (err.kind === 'ObjectId') {
+      return res.status(400).json({ error: 'Invalid trip ID format' });
+    }
+    res.status(500).send('Server Error');
+  }
+});
+
+// @route   PATCH /api/trips/:id/confirm
+// @desc    Update trip confirmation status
+router.patch('/:id/confirm', async (req, res) => {
+  try {
+    const { confirmed } = req.body;
+
+    if (typeof confirmed === 'undefined') {
+      return res.status(400).json({ 
+        error: 'Confirmed field is required' 
+      });
+    }
+
+    const updatedTrip = await Trip.findByIdAndUpdate(
+      req.params.id,
+      { $set: { confirmed } },
       { new: true, runValidators: true }
     );
 

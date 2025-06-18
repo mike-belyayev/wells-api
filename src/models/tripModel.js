@@ -16,6 +16,10 @@ const TripSchema = new mongoose.Schema({
   tripDate: {
     type: String,
     required: true
+  },
+  confirmed: {
+    type: Boolean,
+    required: true
   }
 });
 
