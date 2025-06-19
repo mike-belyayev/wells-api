@@ -67,6 +67,10 @@ UserSchema.methods.comparePassword = async function(candidatePassword) {
 
 // Generate JWT token
 UserSchema.methods.generateAuthToken = function() {
+  if (!process.env.JWT_SECRET) {
+    throw new Error('JWT_SECRET is not defined in environment variables');
+  }
+  
   return jwt.sign(
     { id: this._id, isAdmin: this.isAdmin },
     process.env.JWT_SECRET,
