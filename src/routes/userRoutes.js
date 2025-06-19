@@ -83,17 +83,18 @@ router.post('/login', async (req, res) => {
     await user.save();
 
     // Generate JWT token
-    const token = user.generateAuthToken();
+    const token = await user.generateAuthToken(); // Make sure to await this
 
     // Return user info (without sensitive data) and token
     const userToReturn = user.toObject();
     delete userToReturn.password;
     delete userToReturn.resetPasswordToken;
     delete userToReturn.resetPasswordExpire;
+    delete userToReturn.tokens; // Also remove tokens array from response
 
     res.json({ 
       user: userToReturn,
-      token 
+      token // This is what your frontend expects at the root level
     });
   } catch (err) {
     console.error('Login Error:', err.message);

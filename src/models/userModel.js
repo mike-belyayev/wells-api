@@ -86,7 +86,7 @@ UserSchema.methods.generateAuthToken = async function() {
   }
   
   const token = jwt.sign(
-    { _id: this._id, isAdmin: this.isAdmin }, // Changed to _id for consistency
+    { _id: this._id, isAdmin: this.isAdmin },
     process.env.JWT_SECRET,
     { expiresIn: '30d' }
   );
@@ -95,7 +95,7 @@ UserSchema.methods.generateAuthToken = async function() {
   this.tokens = this.tokens.concat({ token });
   await this.save();
   
-  return token;
+  return token; // This is crucial - make sure it returns the token
 };
 
 // Generate password reset token
