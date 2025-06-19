@@ -1,5 +1,7 @@
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 
 const UserSchema = new mongoose.Schema({
   userEmail: {
@@ -12,7 +14,7 @@ const UserSchema = new mongoose.Schema({
   },
   password: {
     type: String,
-    select: false, // Never return password in queries
+    select: false,
     minlength: [8, 'Password must be at least 8 characters']
   },
   firstName: {
@@ -63,7 +65,16 @@ UserSchema.methods.comparePassword = async function(candidatePassword) {
   return await bcrypt.compare(candidatePassword, this.password);
 };
 
-// Static method for password reset token generation
+// Generate JWT token
+UserSchema.methods.generateAuthToken = function() {
+  return jwt.sign(
+    { id: this._id, isAdmin: this.isAdmin },
+    process.env.JWT_SECRET,
+    { expiresIn: '30d' }
+  );
+};
+
+// Generate password reset token
 UserSchema.methods.getResetPasswordToken = function() {
   const resetToken = crypto.randomBytes(20).toString('hex');
   

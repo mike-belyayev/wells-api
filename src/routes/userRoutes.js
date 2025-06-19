@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const User = require('../models/userModel');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { sendVerificationEmail, sendPasswordResetEmail } = require('../utils/email');
 const auth = require('../middleware/auth');
@@ -48,7 +49,7 @@ router.post('/register', async (req, res) => {
 
     res.status(201).json(userToReturn);
   } catch (err) {
-    console.error(err.message);
+    console.error('Registration Error:', err.message);
     res.status(500).json({ error: 'Server Error' });
   }
 });
@@ -95,7 +96,7 @@ router.post('/login', async (req, res) => {
       token 
     });
   } catch (err) {
-    console.error(err.message);
+    console.error('Login Error:', err.message);
     res.status(500).json({ error: 'Server Error' });
   }
 });
@@ -120,7 +121,7 @@ router.post('/forgot-password', async (req, res) => {
 
     res.json({ message: 'Password reset email sent' });
   } catch (err) {
-    console.error(err.message);
+    console.error('Forgot Password Error:', err.message);
     res.status(500).json({ error: 'Server Error' });
   }
 });
@@ -151,7 +152,7 @@ router.put('/reset-password/:resetToken', async (req, res) => {
 
     res.json({ message: 'Password updated successfully' });
   } catch (err) {
-    console.error(err.message);
+    console.error('Reset Password Error:', err.message);
     res.status(500).json({ error: 'Server Error' });
   }
 });
@@ -166,7 +167,7 @@ router.get('/me', auth, async (req, res) => {
     }
     res.json(user);
   } catch (err) {
-    console.error(err.message);
+    console.error('Get Profile Error:', err.message);
     res.status(500).json({ error: 'Server Error' });
   }
 });
@@ -185,7 +186,7 @@ router.put('/me', auth, async (req, res) => {
 
     res.json(updatedUser);
   } catch (err) {
-    console.error(err.message);
+    console.error('Update Profile Error:', err.message);
     res.status(500).json({ error: 'Server Error' });
   }
 });
@@ -200,7 +201,7 @@ router.get('/unverified', [auth, admin], async (req, res) => {
       .select('-password -resetPasswordToken -resetPasswordExpire');
     res.json(users);
   } catch (err) {
-    console.error(err.message);
+    console.error('Get Unverified Users Error:', err.message);
     res.status(500).json({ error: 'Server Error' });
   }
 });
@@ -221,7 +222,7 @@ router.put('/verify/:userId', [auth, admin], async (req, res) => {
 
     res.json(user);
   } catch (err) {
-    console.error(err.message);
+    console.error('Verify User Error:', err.message);
     res.status(500).json({ error: 'Server Error' });
   }
 });
@@ -234,7 +235,7 @@ router.get('/', [auth, admin], async (req, res) => {
       .select('-password -resetPasswordToken -resetPasswordExpire');
     res.json(users);
   } catch (err) {
-    console.error(err.message);
+    console.error('Get All Users Error:', err.message);
     res.status(500).json({ error: 'Server Error' });
   }
 });
@@ -250,7 +251,7 @@ router.get('/:id', [auth, admin], async (req, res) => {
     }
     res.json(user);
   } catch (err) {
-    console.error(err.message);
+    console.error('Get User by ID Error:', err.message);
     res.status(500).json({ error: 'Server Error' });
   }
 });
@@ -273,7 +274,7 @@ router.put('/:id', [auth, admin], async (req, res) => {
 
     res.json(updatedUser);
   } catch (err) {
-    console.error(err.message);
+    console.error('Update User Error:', err.message);
     res.status(500).json({ error: 'Server Error' });
   }
 });
@@ -288,7 +289,7 @@ router.delete('/:id', [auth, admin], async (req, res) => {
     }
     res.json({ message: 'User deleted successfully' });
   } catch (err) {
-    console.error(err.message);
+    console.error('Delete User Error:', err.message);
     res.status(500).json({ error: 'Server Error' });
   }
 });
