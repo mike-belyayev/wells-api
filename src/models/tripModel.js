@@ -9,7 +9,7 @@ const TripSchema = new mongoose.Schema({
     type: String,
     required: true
   },
-    toDestination: {
+  toDestination: {
     type: String,
     required: true
   },
@@ -22,14 +22,17 @@ const TripSchema = new mongoose.Schema({
     required: true
   },
   numberOfPassengers: {
-  type: Number,
-  min: 1,
-  validate: {
-    validator: Number.isInteger,
-    message: '{VALUE} is not an integer value'
-  },
-  default: undefined
-}
+    type: Number,
+    min: 1,
+    validate: {
+      validator: function(value) {
+        // Allow null/undefined, or positive integers
+        return value === null || value === undefined || (Number.isInteger(value) && value >= 1);
+      },
+      message: 'Number of passengers must be a positive integer or empty'
+    },
+    default: null
+  }
 });
 
 module.exports = mongoose.model('Trip', TripSchema);
