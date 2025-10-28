@@ -2,6 +2,83 @@ const express = require('express');
 const router = express.Router();
 const Trip = require('../models/tripModel');
 
+// @route   POST /api/trips
+// @desc    Create a new trip
+router.post('/', async (req, res) => {
+  try {
+    const { passengerId, fromOrigin, toDestination, tripDate, confirmed, numberOfPassengers } = req.body;
+
+    // Validate required fields (numberOfPassengers is optional)
+    if (!passengerId || !fromOrigin || !toDestination || !tripDate || typeof confirmed === 'undefined') {
+      return res.status(400).json({ 
+        error: 'All fields (passengerId, fromOrigin, toDestination, tripDate, confirmed) are required' 
+      });
+    }
+
+    // Build trip data - handle numberOfPassengers properly
+    const tripData = {
+      passengerId,
+      fromOrigin,
+      toDestination,
+      tripDate,
+      confirmed,
+      numberOfPassengers: numberOfPassengers !== undefined ? numberOfPassengers : null
+    };
+
+    const newTrip = new Trip(tripData);
+    const savedTrip = await newTrip.save();
+    res.status(201).json(savedTrip);
+  } catch (err) {
+    console.error('Error creating trip:', err.message);
+    res.status(500).json({ error: 'Server Error' });
+  }
+});
+
+// @route   GET /api/trips
+// @desc    Get all trips
+router.get('/', async (req, res) => {
+  try {
+    const trips = await Trip.find();
+    res.json(trips);
+  } catch (err) {
+    console.error('Error fetching trips:', err.message);
+    res.status(500).json({ error: 'Server Error' });
+  }
+});
+
+// @route   GET /api/trips/:id
+// @desc    Get trip by ID
+router.get('/:id', async (req, res) => {
+  try {
+    const trip = await Trip.findById(req.params.id);
+    if (!trip) {
+      return res.status(404).json({ error: 'Trip not found' });
+    }
+    res.json(trip);
+  } catch (err) {
+    console.error('Error fetching trip:', err.message);
+    if (err.kind === 'ObjectId') {
+      return res.status(400).json({ error: 'Invalid trip ID format' });
+    }
+    res.status(500).json({ error: 'Server Error' });
+  }
+});
+
+// @route   GET /api/trips/passenger/:passengerId
+// @desc    Get trips by passenger ID
+router.get('/passenger/:passengerId', async (req, res) => {
+  try {
+    const trips = await Trip.find({ passengerId: req.params.passengerId });
+    if (!trips || trips.length === 0) {
+      return res.status(404).json({ error: 'No trips found for this passenger' });
+    }
+    res.json(trips);
+  } catch (err) {
+    console.error('Error fetching passenger trips:', err.message);
+    res.status(500).json({ error: 'Server Error' });
+  }
+});
+
 // @route   PUT /api/trips/:id
 // @desc    Update trip by ID
 router.put('/:id', async (req, res) => {
@@ -24,7 +101,7 @@ router.put('/:id', async (req, res) => {
           toDestination,
           tripDate,
           confirmed,
-          // Explicitly set numberOfPassengers to null if not provided or null
+          // Handle numberOfPassengers properly - set to null if undefined
           numberOfPassengers: numberOfPassengers !== undefined ? numberOfPassengers : null
         } 
       },
@@ -37,89 +114,17 @@ router.put('/:id', async (req, res) => {
 
     res.json(updatedTrip);
   } catch (err) {
-    console.error(err.message);
+    console.error('Error updating trip:', err.message);
     if (err.kind === 'ObjectId') {
       return res.status(400).json({ error: 'Invalid trip ID format' });
     }
-    res.status(500).send('Server Error');
-  }
-});
-
-// @route   GET /api/trips
-// @desc    Get all trips
-router.get('/', async (req, res) => {
-  try {
-    const trips = await Trip.find();
-    res.json(trips);
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server Error');
-  }
-});
-
-// @route   GET /api/trips/:id
-// @desc    Get trip by ID
-router.get('/:id', async (req, res) => {
-  try {
-    const trip = await Trip.findById(req.params.id);
-    if (!trip) {
-      return res.status(404).json({ error: 'Trip not found' });
+    
+    // Handle Mongoose validation errors
+    if (err.name === 'ValidationError') {
+      return res.status(400).json({ error: err.message });
     }
-    res.json(trip);
-  } catch (err) {
-    console.error(err.message);
-    if (err.kind === 'ObjectId') {
-      return res.status(400).json({ error: 'Invalid trip ID format' });
-    }
-    res.status(500).send('Server Error');
-  }
-});
-
-// @route   GET /api/trips/passenger/:passengerId
-// @desc    Get trips by passenger ID
-router.get('/passenger/:passengerId', async (req, res) => {
-  try {
-    const trips = await Trip.find({ passengerId: req.params.passengerId });
-    if (!trips || trips.length === 0) {
-      return res.status(404).json({ error: 'No trips found for this passenger' });
-    }
-    res.json(trips);
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).send('Server Error');
-  }
-});
-
-// @route   PUT /api/trips/:id
-// @desc    Update trip by ID
-router.put('/:id', async (req, res) => {
-  try {
-    const { passengerId, fromOrigin, toDestination, tripDate, confirmed, numberOfPassengers } = req.body;
-
-    // Validate required fields (numberOfPassengers is optional)
-    if (!passengerId || !fromOrigin || !toDestination || !tripDate || typeof confirmed === 'undefined') {
-      return res.status(400).json({ 
-        error: 'All fields (passengerId, fromOrigin, toDestination, tripDate, confirmed) are required' 
-      });
-    }
-
-    const updatedTrip = await Trip.findByIdAndUpdate(
-      req.params.id,
-      { $set: { passengerId, fromOrigin, toDestination, tripDate, confirmed, numberOfPassengers } }, // Add numberOfPassengers
-      { new: true, runValidators: true }
-    );
-
-    if (!updatedTrip) {
-      return res.status(404).json({ error: 'Trip not found' });
-    }
-
-    res.json(updatedTrip);
-  } catch (err) {
-    console.error(err.message);
-    if (err.kind === 'ObjectId') {
-      return res.status(400).json({ error: 'Invalid trip ID format' });
-    }
-    res.status(500).send('Server Error');
+    
+    res.status(500).json({ error: 'Server Error' });
   }
 });
 
@@ -147,11 +152,11 @@ router.patch('/:id/confirm', async (req, res) => {
 
     res.json(updatedTrip);
   } catch (err) {
-    console.error(err.message);
+    console.error('Error confirming trip:', err.message);
     if (err.kind === 'ObjectId') {
       return res.status(400).json({ error: 'Invalid trip ID format' });
     }
-    res.status(500).send('Server Error');
+    res.status(500).json({ error: 'Server Error' });
   }
 });
 
@@ -165,11 +170,11 @@ router.delete('/:id', async (req, res) => {
     }
     res.json({ message: 'Trip deleted successfully' });
   } catch (err) {
-    console.error(err.message);
+    console.error('Error deleting trip:', err.message);
     if (err.kind === 'ObjectId') {
       return res.status(400).json({ error: 'Invalid trip ID format' });
     }
-    res.status(500).send('Server Error');
+    res.status(500).json({ error: 'Server Error' });
   }
 });
 
@@ -191,11 +196,11 @@ router.patch('/:id/passengers/increment', async (req, res) => {
 
     res.json(updatedTrip);
   } catch (err) {
-    console.error(err.message);
+    console.error('Error incrementing passengers:', err.message);
     if (err.kind === 'ObjectId') {
       return res.status(400).json({ error: 'Invalid trip ID format' });
     }
-    res.status(500).send('Server Error');
+    res.status(500).json({ error: 'Server Error' });
   }
 });
 
@@ -209,8 +214,10 @@ router.patch('/:id/passengers/decrement', async (req, res) => {
       return res.status(404).json({ error: 'Trip not found' });
     }
 
+    const currentPassengerCount = currentTrip.numberOfPassengers || 0;
+    
     // Don't decrement below 1
-    if (currentTrip.numberOfPassengers <= 1) {
+    if (currentPassengerCount <= 1) {
       return res.status(400).json({ error: 'Number of passengers cannot be less than 1' });
     }
 
@@ -224,11 +231,11 @@ router.patch('/:id/passengers/decrement', async (req, res) => {
 
     res.json(updatedTrip);
   } catch (err) {
-    console.error(err.message);
+    console.error('Error decrementing passengers:', err.message);
     if (err.kind === 'ObjectId') {
       return res.status(400).json({ error: 'Invalid trip ID format' });
     }
-    res.status(500).send('Server Error');
+    res.status(500).json({ error: 'Server Error' });
   }
 });
 
@@ -262,11 +269,11 @@ router.patch('/:id/passengers/set', async (req, res) => {
 
     res.json(updatedTrip);
   } catch (err) {
-    console.error(err.message);
+    console.error('Error setting passengers:', err.message);
     if (err.kind === 'ObjectId') {
       return res.status(400).json({ error: 'Invalid trip ID format' });
     }
-    res.status(500).send('Server Error');
+    res.status(500).json({ error: 'Server Error' });
   }
 });
 
