@@ -1,17 +1,22 @@
 const mongoose = require('mongoose');
 
-const PassengerSchema = new mongoose.Schema({
-  firstName: {
+const SiteSchema = new mongoose.Schema({
+  siteName: {
     type: String,
     required: true
   },
-    lastName: {
-    type: String,
+  currentPOB: {
+    type: Number,
     required: true
   },
-  jobRole: {
-    type: String
+  maximumPOB: {
+    type: Number,
+    required: true
+  },
+  pobUpdatedDate: {
+    type: Date,  // Use Date type instead of String
+    required: true
   }
 });
 
-module.exports = mongoose.model('Passenger', PassengerSchema);
+module.exports = mongoose.model('Site', SiteSchema);
