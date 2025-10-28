@@ -6,9 +6,9 @@ const Trip = require('../models/tripModel');
 // @desc    Create a new trip
 router.post('/', async (req, res) => {
   try {
-    const { passengerId, fromOrigin, toDestination, tripDate, confirmed } = req.body;
+    const { passengerId, fromOrigin, toDestination, tripDate, confirmed, numberOfPassengers } = req.body;
 
-    // Validate required fields
+    // Validate required fields (numberOfPassengers is optional)
     if (!passengerId || !fromOrigin || !toDestination || !tripDate || typeof confirmed === 'undefined') {
       return res.status(400).json({ 
         error: 'All fields (passengerId, fromOrigin, toDestination, tripDate, confirmed) are required' 
@@ -20,7 +20,8 @@ router.post('/', async (req, res) => {
       fromOrigin,
       toDestination,
       tripDate,
-      confirmed
+      confirmed,
+      numberOfPassengers // Add this line
     });
 
     const savedTrip = await newTrip.save();
@@ -80,9 +81,9 @@ router.get('/passenger/:passengerId', async (req, res) => {
 // @desc    Update trip by ID
 router.put('/:id', async (req, res) => {
   try {
-    const { passengerId, fromOrigin, toDestination, tripDate, confirmed } = req.body;
+    const { passengerId, fromOrigin, toDestination, tripDate, confirmed, numberOfPassengers } = req.body;
 
-    // Validate required fields
+    // Validate required fields (numberOfPassengers is optional)
     if (!passengerId || !fromOrigin || !toDestination || !tripDate || typeof confirmed === 'undefined') {
       return res.status(400).json({ 
         error: 'All fields (passengerId, fromOrigin, toDestination, tripDate, confirmed) are required' 
@@ -91,7 +92,7 @@ router.put('/:id', async (req, res) => {
 
     const updatedTrip = await Trip.findByIdAndUpdate(
       req.params.id,
-      { $set: { passengerId, fromOrigin, toDestination, tripDate, confirmed } },
+      { $set: { passengerId, fromOrigin, toDestination, tripDate, confirmed, numberOfPassengers } }, // Add numberOfPassengers
       { new: true, runValidators: true }
     );
 
@@ -150,6 +151,103 @@ router.delete('/:id', async (req, res) => {
       return res.status(404).json({ error: 'Trip not found' });
     }
     res.json({ message: 'Trip deleted successfully' });
+  } catch (err) {
+    console.error(err.message);
+    if (err.kind === 'ObjectId') {
+      return res.status(400).json({ error: 'Invalid trip ID format' });
+    }
+    res.status(500).send('Server Error');
+  }
+});
+
+// @route   PATCH /api/trips/:id/passengers/increment
+// @desc    Increment number of passengers
+router.patch('/:id/passengers/increment', async (req, res) => {
+  try {
+    const updatedTrip = await Trip.findByIdAndUpdate(
+      req.params.id,
+      { 
+        $inc: { numberOfPassengers: 1 } // Increment by 1
+      },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedTrip) {
+      return res.status(404).json({ error: 'Trip not found' });
+    }
+
+    res.json(updatedTrip);
+  } catch (err) {
+    console.error(err.message);
+    if (err.kind === 'ObjectId') {
+      return res.status(400).json({ error: 'Invalid trip ID format' });
+    }
+    res.status(500).send('Server Error');
+  }
+});
+
+// @route   PATCH /api/trips/:id/passengers/decrement
+// @desc    Decrement number of passengers (minimum 1)
+router.patch('/:id/passengers/decrement', async (req, res) => {
+  try {
+    // First get the current trip to check the current value
+    const currentTrip = await Trip.findById(req.params.id);
+    if (!currentTrip) {
+      return res.status(404).json({ error: 'Trip not found' });
+    }
+
+    // Don't decrement below 1
+    if (currentTrip.numberOfPassengers <= 1) {
+      return res.status(400).json({ error: 'Number of passengers cannot be less than 1' });
+    }
+
+    const updatedTrip = await Trip.findByIdAndUpdate(
+      req.params.id,
+      { 
+        $inc: { numberOfPassengers: -1 } // Decrement by 1
+      },
+      { new: true, runValidators: true }
+    );
+
+    res.json(updatedTrip);
+  } catch (err) {
+    console.error(err.message);
+    if (err.kind === 'ObjectId') {
+      return res.status(400).json({ error: 'Invalid trip ID format' });
+    }
+    res.status(500).send('Server Error');
+  }
+});
+
+// @route   PATCH /api/trips/:id/passengers/set
+// @desc    Set specific number of passengers
+router.patch('/:id/passengers/set', async (req, res) => {
+  try {
+    const { numberOfPassengers } = req.body;
+
+    if (typeof numberOfPassengers === 'undefined') {
+      return res.status(400).json({ 
+        error: 'numberOfPassengers field is required' 
+      });
+    }
+
+    if (numberOfPassengers < 1 || !Number.isInteger(numberOfPassengers)) {
+      return res.status(400).json({ 
+        error: 'numberOfPassengers must be a positive integer' 
+      });
+    }
+
+    const updatedTrip = await Trip.findByIdAndUpdate(
+      req.params.id,
+      { $set: { numberOfPassengers } },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedTrip) {
+      return res.status(404).json({ error: 'Trip not found' });
+    }
+
+    res.json(updatedTrip);
   } catch (err) {
     console.error(err.message);
     if (err.kind === 'ObjectId') {

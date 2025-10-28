@@ -20,7 +20,16 @@ const TripSchema = new mongoose.Schema({
   confirmed: {
     type: Boolean,
     required: true
-  }
+  },
+  numberOfPassengers: {
+  type: Number,
+  min: 1,
+  validate: {
+    validator: Number.isInteger,
+    message: '{VALUE} is not an integer value'
+  },
+  default: undefined
+}
 });
 
 module.exports = mongoose.model('Trip', TripSchema);
