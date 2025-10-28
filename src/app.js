@@ -55,6 +55,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/passengers', require('./routes/passengerRoutes'));
 app.use('/api/trips', require('./routes/tripRoutes'));
+app.use('/api/sites', require('./routes/siteRoutes')); // Add this line
 
 // Health Check Endpoint
 app.get('/api/health', (req, res) => {
@@ -71,7 +72,8 @@ app.get('/api/health', (req, res) => {
     endpoints: {
       users: '/api/users',
       passengers: '/api/passengers',
-      trips: '/api/trips'
+      trips: '/api/trips',
+      sites: '/api/sites' // Add this line
     }
   });
 });
@@ -90,7 +92,8 @@ app.get(['/', '/api'], async (req, res) => {
         health: '/api/health',
         users: '/api/users',
         passengers: '/api/passengers',
-        trips: '/api/trips'
+        trips: '/api/trips',
+        sites: '/api/sites' // Add this line
       }
     });
   } catch (err) {
@@ -146,5 +149,6 @@ if (process.env.VERCEL) {
     console.log('- /api/users');
     console.log('- /api/passengers');
     console.log('- /api/trips');
+    console.log('- /api/sites'); // Add this line
   });
 }
