@@ -2,9 +2,9 @@ const express = require('express');
 const router = express.Router();
 const Trip = require('../models/tripModel');
 
-// @route   POST /api/trips
-// @desc    Create a new trip
-router.post('/', async (req, res) => {
+// @route   PUT /api/trips/:id
+// @desc    Update trip by ID
+router.put('/:id', async (req, res) => {
   try {
     const { passengerId, fromOrigin, toDestination, tripDate, confirmed, numberOfPassengers } = req.body;
 
@@ -15,19 +15,32 @@ router.post('/', async (req, res) => {
       });
     }
 
-    const newTrip = new Trip({
-      passengerId,
-      fromOrigin,
-      toDestination,
-      tripDate,
-      confirmed,
-      numberOfPassengers // Add this line
-    });
+    const updatedTrip = await Trip.findByIdAndUpdate(
+      req.params.id,
+      { 
+        $set: { 
+          passengerId,
+          fromOrigin,
+          toDestination,
+          tripDate,
+          confirmed,
+          // Explicitly set numberOfPassengers to null if not provided or null
+          numberOfPassengers: numberOfPassengers !== undefined ? numberOfPassengers : null
+        } 
+      },
+      { new: true, runValidators: true }
+    );
 
-    const savedTrip = await newTrip.save();
-    res.status(201).json(savedTrip);
+    if (!updatedTrip) {
+      return res.status(404).json({ error: 'Trip not found' });
+    }
+
+    res.json(updatedTrip);
   } catch (err) {
     console.error(err.message);
+    if (err.kind === 'ObjectId') {
+      return res.status(400).json({ error: 'Invalid trip ID format' });
+    }
     res.status(500).send('Server Error');
   }
 });
