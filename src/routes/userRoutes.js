@@ -1,15 +1,11 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/userModel');
-const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
-const crypto = require('crypto');
-const { sendVerificationEmail, sendPasswordResetEmail } = require('../utils/email');
 const auth = require('../middleware/auth');
 const admin = require('../middleware/admin');
 
 // @route   POST /api/users/register
-// @desc    Register a new user (unverified)
+// @desc    Register a new user (active immediately)
 router.post('/register', async (req, res) => {
   try {
     const { userEmail, password, firstName, lastName, homeLocation } = req.body;
@@ -25,27 +21,21 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ error: 'User with this email already exists' });
     }
 
-    // Create new unverified user
+    // Create new user (active immediately)
     const newUser = new User({
       userEmail,
       password,
       firstName,
       lastName,
       homeLocation,
-      isAdmin: false,
-      isVerified: false
+      isAdmin: false
     });
 
     const savedUser = await newUser.save();
-    
-    // Send verification request to admin
-    await sendVerificationEmail(userEmail);
 
     // Return user without password
     const userToReturn = savedUser.toObject();
     delete userToReturn.password;
-    delete userToReturn.resetPasswordToken;
-    delete userToReturn.resetPasswordExpire;
 
     res.status(201).json(userToReturn);
   } catch (err) {
@@ -67,11 +57,6 @@ router.post('/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid credentials' });
     }
 
-    // Check if user is verified
-    if (!user.isVerified) {
-      return res.status(403).json({ error: 'Account not verified by admin' });
-    }
-
     // Compare passwords
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
@@ -83,77 +68,19 @@ router.post('/login', async (req, res) => {
     await user.save();
 
     // Generate JWT token
-    const token = await user.generateAuthToken(); // Make sure to await this
+    const token = await user.generateAuthToken();
 
     // Return user info (without sensitive data) and token
     const userToReturn = user.toObject();
     delete userToReturn.password;
-    delete userToReturn.resetPasswordToken;
-    delete userToReturn.resetPasswordExpire;
-    delete userToReturn.tokens; // Also remove tokens array from response
+    delete userToReturn.tokens;
 
     res.json({ 
       user: userToReturn,
-      token // This is what your frontend expects at the root level
+      token
     });
   } catch (err) {
     console.error('Login Error:', err.message);
-    res.status(500).json({ error: 'Server Error' });
-  }
-});
-
-// @route   POST /api/users/forgot-password
-// @desc    Request password reset
-router.post('/forgot-password', async (req, res) => {
-  try {
-    const { userEmail } = req.body;
-
-    const user = await User.findOne({ userEmail });
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    // Generate and save reset token
-    const resetToken = user.getResetPasswordToken();
-    await user.save();
-
-    // Send email with reset token
-    await sendPasswordResetEmail(userEmail, resetToken);
-
-    res.json({ message: 'Password reset email sent' });
-  } catch (err) {
-    console.error('Forgot Password Error:', err.message);
-    res.status(500).json({ error: 'Server Error' });
-  }
-});
-
-// @route   PUT /api/users/reset-password/:resetToken
-// @desc    Reset password
-router.put('/reset-password/:resetToken', async (req, res) => {
-  try {
-    const resetPasswordToken = crypto
-      .createHash('sha256')
-      .update(req.params.resetToken)
-      .digest('hex');
-
-    const user = await User.findOne({ 
-      resetPasswordToken,
-      resetPasswordExpire: { $gt: Date.now() }
-    });
-
-    if (!user) {
-      return res.status(400).json({ error: 'Invalid or expired token' });
-    }
-
-    // Set new password
-    user.password = req.body.password;
-    user.resetPasswordToken = undefined;
-    user.resetPasswordExpire = undefined;
-    await user.save();
-
-    res.json({ message: 'Password updated successfully' });
-  } catch (err) {
-    console.error('Reset Password Error:', err.message);
     res.status(500).json({ error: 'Server Error' });
   }
 });
@@ -162,7 +89,7 @@ router.put('/reset-password/:resetToken', async (req, res) => {
 // @desc    Get current user profile
 router.get('/me', auth, async (req, res) => {
   try {
-    const user = await User.findById(req.user.id).select('-password -resetPasswordToken -resetPasswordExpire');
+    const user = await User.findById(req.user.id).select('-password');
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -183,7 +110,7 @@ router.put('/me', auth, async (req, res) => {
       req.user.id,
       { $set: { firstName, lastName, homeLocation } },
       { new: true, runValidators: true }
-    ).select('-password -resetPasswordToken -resetPasswordExpire');
+    ).select('-password');
 
     res.json(updatedUser);
   } catch (err) {
@@ -194,46 +121,11 @@ router.put('/me', auth, async (req, res) => {
 
 // ADMIN ROUTES //
 
-// @route   GET /api/users/unverified
-// @desc    Get all unverified users (Admin only)
-router.get('/unverified', [auth, admin], async (req, res) => {
-  try {
-    const users = await User.find({ isVerified: false })
-      .select('-password -resetPasswordToken -resetPasswordExpire');
-    res.json(users);
-  } catch (err) {
-    console.error('Get Unverified Users Error:', err.message);
-    res.status(500).json({ error: 'Server Error' });
-  }
-});
-
-// @route   PUT /api/users/verify/:userId
-// @desc    Verify a user (Admin only)
-router.put('/verify/:userId', [auth, admin], async (req, res) => {
-  try {
-    const user = await User.findByIdAndUpdate(
-      req.params.userId,
-      { $set: { isVerified: true } },
-      { new: true, runValidators: true }
-    ).select('-password -resetPasswordToken -resetPasswordExpire');
-
-    if (!user) {
-      return res.status(404).json({ error: 'User not found' });
-    }
-
-    res.json(user);
-  } catch (err) {
-    console.error('Verify User Error:', err.message);
-    res.status(500).json({ error: 'Server Error' });
-  }
-});
-
 // @route   GET /api/users
 // @desc    Get all users (Admin only)
 router.get('/', [auth, admin], async (req, res) => {
   try {
-    const users = await User.find()
-      .select('-password -resetPasswordToken -resetPasswordExpire');
+    const users = await User.find().select('-password');
     res.json(users);
   } catch (err) {
     console.error('Get All Users Error:', err.message);
@@ -245,8 +137,7 @@ router.get('/', [auth, admin], async (req, res) => {
 // @desc    Get user by ID (Admin only)
 router.get('/:id', [auth, admin], async (req, res) => {
   try {
-    const user = await User.findById(req.params.id)
-      .select('-password -resetPasswordToken -resetPasswordExpire');
+    const user = await User.findById(req.params.id).select('-password');
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -267,7 +158,7 @@ router.put('/:id', [auth, admin], async (req, res) => {
       req.params.id,
       { $set: { firstName, lastName, isAdmin, homeLocation } },
       { new: true, runValidators: true }
-    ).select('-password -resetPasswordToken -resetPasswordExpire');
+    ).select('-password');
 
     if (!updatedUser) {
       return res.status(404).json({ error: 'User not found' });
