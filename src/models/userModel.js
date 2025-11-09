@@ -4,13 +4,15 @@ const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 
 const UserSchema = new mongoose.Schema({
-  userEmail: {
+  userName: {
     type: String,
-    required: [true, 'Email is required'],
+    required: [true, 'Username is required'],
     unique: true,
     trim: true,
     lowercase: true,
-    match: [/^[^\s@]+@[^\s@]+\.[^\s@]+$/, 'Please use a valid email address']
+    minlength: [3, 'Username must be at least 3 characters'],
+    maxlength: [30, 'Username cannot exceed 30 characters'],
+    match: [/^[a-zA-Z0-9\-]+$/, 'Username can only contain letters, numbers, and hyphens']
   },
   password: {
     type: String,
@@ -33,7 +35,7 @@ const UserSchema = new mongoose.Schema({
   },
   isAdmin: {
     type: Boolean,
-    default: false
+    required: true
   },
   homeLocation: {
     type: String,
@@ -53,7 +55,7 @@ const UserSchema = new mongoose.Schema({
     default: Date.now
   }
 }, {
-  timestamps: true // Adds createdAt and updatedAt automatically
+  timestamps: true
 });
 
 // Hash password before saving
@@ -61,7 +63,7 @@ UserSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
   
   try {
-    const salt = await bcrypt.genSalt(12); // Increased salt rounds
+    const salt = await bcrypt.genSalt(12);
     this.password = await bcrypt.hash(this.password, salt);
     next();
   } catch (err) {
@@ -87,11 +89,10 @@ UserSchema.methods.generateAuthToken = async function() {
     { expiresIn: '30d' }
   );
 
-  // Store token if you want multiple device support
   this.tokens = this.tokens.concat({ token });
   await this.save();
   
-  return token; // This is crucial - make sure it returns the token
+  return token;
 };
 
 // Generate password reset token
@@ -103,7 +104,7 @@ UserSchema.methods.getResetPasswordToken = function() {
     .update(resetToken)
     .digest('hex');
     
-  this.resetPasswordExpire = Date.now() + 10 * 60 * 1000; // 10 minutes
+  this.resetPasswordExpire = Date.now() + 10 * 60 * 1000;
   
   return resetToken;
 };
