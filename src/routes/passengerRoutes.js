@@ -1,10 +1,13 @@
 const express = require('express');
 const router = express.Router();
 const Passenger = require('../models/passengerModel');
+const Trip = require('../models/tripModel'); // Import Trip model
+const auth = require('../middleware/auth');
+const admin = require('../middleware/admin');
 
 // @route   POST /api/passengers
 // @desc    Create a new passenger
-router.post('/', async (req, res) => {
+router.post('/', [auth, admin], async (req, res) => {
   try {
     const { firstName, lastName, jobRole } = req.body;
 
@@ -29,7 +32,7 @@ router.post('/', async (req, res) => {
 
 // @route   GET /api/passengers
 // @desc    Get all passengers
-router.get('/', async (req, res) => {
+router.get('/', auth, async (req, res) => {
   try {
     const passengers = await Passenger.find();
     res.json(passengers);
@@ -41,7 +44,7 @@ router.get('/', async (req, res) => {
 
 // @route   GET /api/passengers/:id
 // @desc    Get passenger by ID
-router.get('/:id', async (req, res) => {
+router.get('/:id', auth, async (req, res) => {
   try {
     const passenger = await Passenger.findById(req.params.id);
     if (!passenger) {
@@ -60,7 +63,7 @@ router.get('/:id', async (req, res) => {
 
 // @route   PUT /api/passengers/:id
 // @desc    Update passenger by ID
-router.put('/:id', async (req, res) => {
+router.put('/:id', [auth, admin], async (req, res) => {
   try {
     const { firstName, lastName, jobRole } = req.body;
 
@@ -90,20 +93,34 @@ router.put('/:id', async (req, res) => {
 });
 
 // @route   DELETE /api/passengers/:id
-// @desc    Delete passenger by ID
-router.delete('/:id', async (req, res) => {
+// @desc    Delete passenger by ID and all associated trips
+router.delete('/:id', [auth, admin], async (req, res) => {
   try {
-    const deletedPassenger = await Passenger.findByIdAndDelete(req.params.id);
-    if (!deletedPassenger) {
+    const passengerId = req.params.id;
+    
+    // First, check if passenger exists
+    const passenger = await Passenger.findById(passengerId);
+    if (!passenger) {
       return res.status(404).json({ error: 'Passenger not found' });
     }
-    res.json({ message: 'Passenger deleted successfully' });
+
+    // Delete all trips associated with this passenger
+    const deleteTripsResult = await Trip.deleteMany({ passengerId });
+    console.log(`Deleted ${deleteTripsResult.deletedCount} trips for passenger ${passengerId}`);
+
+    // Then delete the passenger
+    const deletedPassenger = await Passenger.findByIdAndDelete(passengerId);
+
+    res.json({ 
+      message: 'Passenger and associated trips deleted successfully',
+      tripsDeleted: deleteTripsResult.deletedCount
+    });
   } catch (err) {
-    console.error(err.message);
+    console.error('Delete Passenger Error:', err.message);
     if (err.kind === 'ObjectId') {
       return res.status(400).json({ error: 'Invalid passenger ID format' });
     }
-    res.status(500).send('Server Error');
+    res.status(500).json({ error: 'Server Error' });
   }
 });
 
