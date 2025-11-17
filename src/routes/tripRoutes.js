@@ -31,6 +31,23 @@ const handleError = (res, error, customMessage = 'Server Error') => {
   res.status(500).json({ error: customMessage });
 };
 
+// Helper function to convert any date format to YYYY-MM-DD
+const formatTripDate = (dateInput) => {
+  // If it's already in YYYY-MM-DD format, return as is
+  if (typeof dateInput === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(dateInput)) {
+    return dateInput;
+  }
+  
+  // Try to parse as Date object
+  const dateObj = new Date(dateInput);
+  if (isNaN(dateObj.getTime())) {
+    throw new Error('Invalid date format');
+  }
+  
+  // Convert to YYYY-MM-DD string
+  return dateObj.toISOString().split('T')[0];
+};
+
 // @route   POST /api/trips
 // @desc    Create a new trip
 router.post('/', async (req, res) => {
@@ -47,30 +64,32 @@ router.post('/', async (req, res) => {
       });
     }
 
-    // Validate trip date is in the future (optional business rule)
-    const tripDateObj = new Date(tripDate);
-    if (isNaN(tripDateObj.getTime())) {
+    // Convert tripDate to YYYY-MM-DD format
+    let formattedDate;
+    try {
+      formattedDate = formatTripDate(tripDate);
+    } catch (dateError) {
       return res.status(400).json({ 
         error: 'Validation failed',
-        message: 'Invalid trip date format' 
+        message: 'Invalid trip date format. Use YYYY-MM-DD format or a valid date string' 
       });
     }
 
-    // Build trip data
+    // Build trip data - set numberOfPassengers to null by default
     const tripData = {
       passengerId: passengerId.trim(),
       fromOrigin: fromOrigin.trim(),
       toDestination: toDestination.trim(),
-      tripDate: tripDateObj,
+      tripDate: formattedDate,
       confirmed: Boolean(confirmed),
       numberOfPassengers: numberOfPassengers !== undefined && numberOfPassengers !== null ? 
-        Math.max(1, parseInt(numberOfPassengers) || 1) : 1
+        parseInt(numberOfPassengers) : null // Changed to null by default
     };
 
     const newTrip = new Trip(tripData);
     const savedTrip = await newTrip.save();
     
-    console.log(`New trip created: ${savedTrip._id} for passenger ${passengerId}`);
+    console.log(`New trip created: ${savedTrip._id} for passenger ${passengerId} on date ${formattedDate}`);
     res.status(201).json(savedTrip);
   } catch (err) {
     handleError(res, err, 'Failed to create trip');
@@ -156,32 +175,26 @@ router.get('/date/:date', async (req, res) => {
     await dbConnect(); // Ensure DB connection
     
     const dateParam = req.params.date;
-    const date = new Date(dateParam);
     
-    if (isNaN(date.getTime())) {
+    // Convert input date to YYYY-MM-DD format for consistent querying
+    let queryDate;
+    try {
+      queryDate = formatTripDate(dateParam);
+    } catch (dateError) {
       return res.status(400).json({ 
         error: 'Validation failed',
         message: 'Invalid date format. Use YYYY-MM-DD format' 
       });
     }
 
-    // Set date range for the entire day
-    const startDate = new Date(date);
-    startDate.setHours(0, 0, 0, 0);
-    
-    const endDate = new Date(date);
-    endDate.setHours(23, 59, 59, 999);
-
+    // Query using exact string match since we're storing dates as strings
     const trips = await Trip.find({
-      tripDate: {
-        $gte: startDate,
-        $lte: endDate
-      }
+      tripDate: queryDate
     })
-    .sort({ tripDate: 1 })
+    .sort({ createdAt: 1 })
     .maxTimeMS(10000);
     
-    console.log(`Fetched ${trips.length} trips for date ${dateParam}`);
+    console.log(`Fetched ${trips.length} trips for date ${queryDate}`);
     res.json(trips);
   } catch (err) {
     handleError(res, err, 'Failed to fetch trips by date');
@@ -204,14 +217,25 @@ router.put('/:id', async (req, res) => {
       });
     }
 
+    // Convert tripDate to YYYY-MM-DD format
+    let formattedDate;
+    try {
+      formattedDate = formatTripDate(tripDate);
+    } catch (dateError) {
+      return res.status(400).json({ 
+        error: 'Validation failed',
+        message: 'Invalid trip date format. Use YYYY-MM-DD format or a valid date string' 
+      });
+    }
+
     const updateData = {
       passengerId: passengerId.trim(),
       fromOrigin: fromOrigin.trim(),
       toDestination: toDestination.trim(),
-      tripDate: new Date(tripDate),
+      tripDate: formattedDate,
       confirmed: Boolean(confirmed),
       numberOfPassengers: numberOfPassengers !== undefined && numberOfPassengers !== null ? 
-        Math.max(1, parseInt(numberOfPassengers) || 1) : 1
+        parseInt(numberOfPassengers) : null // Changed to null by default
     };
 
     const updatedTrip = await Trip.findByIdAndUpdate(
@@ -231,13 +255,12 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-    console.log(`Trip updated: ${updatedTrip._id}`);
+    console.log(`Trip updated: ${updatedTrip._id} for date ${formattedDate}`);
     res.json(updatedTrip);
   } catch (err) {
     handleError(res, err, 'Failed to update trip');
   }
 });
-
 // @route   PATCH /api/trips/:id/confirm
 // @desc    Update trip confirmation status
 router.patch('/:id/confirm', async (req, res) => {
