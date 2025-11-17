@@ -1,36 +1,79 @@
 const express = require('express');
 const router = express.Router();
 const Trip = require('../models/tripModel');
+const dbConnect = require('../lib/mongodb'); // Import the connection helper
+
+// Helper function for error responses
+const handleError = (res, error, customMessage = 'Server Error') => {
+  console.error(`${customMessage}:`, error);
+  
+  if (error.name === 'CastError' || error.kind === 'ObjectId') {
+    return res.status(400).json({ 
+      error: 'Invalid ID format',
+      message: 'Please provide a valid trip ID'
+    });
+  }
+  
+  if (error.name === 'ValidationError') {
+    return res.status(400).json({ 
+      error: 'Validation failed',
+      message: error.message 
+    });
+  }
+  
+  if (error.name === 'MongoError' || error.name.includes('Mongo')) {
+    return res.status(503).json({ 
+      error: 'Database service unavailable',
+      message: 'Please try again later'
+    });
+  }
+  
+  res.status(500).json({ error: customMessage });
+};
 
 // @route   POST /api/trips
 // @desc    Create a new trip
 router.post('/', async (req, res) => {
   try {
+    await dbConnect(); // Ensure DB connection
+    
     const { passengerId, fromOrigin, toDestination, tripDate, confirmed, numberOfPassengers } = req.body;
 
-    // Validate required fields (numberOfPassengers is optional)
-    if (!passengerId || !fromOrigin || !toDestination || !tripDate || typeof confirmed === 'undefined') {
+    // Validate required fields
+    if (!passengerId?.trim() || !fromOrigin?.trim() || !toDestination?.trim() || !tripDate || typeof confirmed === 'undefined') {
       return res.status(400).json({ 
-        error: 'All fields (passengerId, fromOrigin, toDestination, tripDate, confirmed) are required' 
+        error: 'Validation failed',
+        message: 'All fields (passengerId, fromOrigin, toDestination, tripDate, confirmed) are required' 
       });
     }
 
-    // Build trip data - handle numberOfPassengers properly
+    // Validate trip date is in the future (optional business rule)
+    const tripDateObj = new Date(tripDate);
+    if (isNaN(tripDateObj.getTime())) {
+      return res.status(400).json({ 
+        error: 'Validation failed',
+        message: 'Invalid trip date format' 
+      });
+    }
+
+    // Build trip data
     const tripData = {
-      passengerId,
-      fromOrigin,
-      toDestination,
-      tripDate,
-      confirmed,
-      numberOfPassengers: numberOfPassengers !== undefined ? numberOfPassengers : null
+      passengerId: passengerId.trim(),
+      fromOrigin: fromOrigin.trim(),
+      toDestination: toDestination.trim(),
+      tripDate: tripDateObj,
+      confirmed: Boolean(confirmed),
+      numberOfPassengers: numberOfPassengers !== undefined && numberOfPassengers !== null ? 
+        Math.max(1, parseInt(numberOfPassengers) || 1) : 1
     };
 
     const newTrip = new Trip(tripData);
     const savedTrip = await newTrip.save();
+    
+    console.log(`New trip created: ${savedTrip._id} for passenger ${passengerId}`);
     res.status(201).json(savedTrip);
   } catch (err) {
-    console.error('Error creating trip:', err.message);
-    res.status(500).json({ error: 'Server Error' });
+    handleError(res, err, 'Failed to create trip');
   }
 });
 
@@ -38,11 +81,16 @@ router.post('/', async (req, res) => {
 // @desc    Get all trips
 router.get('/', async (req, res) => {
   try {
-    const trips = await Trip.find();
+    await dbConnect(); // Ensure DB connection
+    
+    const trips = await Trip.find()
+      .sort({ tripDate: -1, createdAt: -1 }) // Most recent first
+      .maxTimeMS(10000);
+    
+    console.log(`Fetched ${trips.length} trips`);
     res.json(trips);
   } catch (err) {
-    console.error('Error fetching trips:', err.message);
-    res.status(500).json({ error: 'Server Error' });
+    handleError(res, err, 'Failed to fetch trips');
   }
 });
 
@@ -50,17 +98,21 @@ router.get('/', async (req, res) => {
 // @desc    Get trip by ID
 router.get('/:id', async (req, res) => {
   try {
-    const trip = await Trip.findById(req.params.id);
+    await dbConnect(); // Ensure DB connection
+    
+    const trip = await Trip.findById(req.params.id)
+      .maxTimeMS(10000);
+    
     if (!trip) {
-      return res.status(404).json({ error: 'Trip not found' });
+      return res.status(404).json({ 
+        error: 'Not found',
+        message: 'Trip not found' 
+      });
     }
+    
     res.json(trip);
   } catch (err) {
-    console.error('Error fetching trip:', err.message);
-    if (err.kind === 'ObjectId') {
-      return res.status(400).json({ error: 'Invalid trip ID format' });
-    }
-    res.status(500).json({ error: 'Server Error' });
+    handleError(res, err, 'Failed to fetch trip');
   }
 });
 
@@ -68,14 +120,71 @@ router.get('/:id', async (req, res) => {
 // @desc    Get trips by passenger ID
 router.get('/passenger/:passengerId', async (req, res) => {
   try {
-    const trips = await Trip.find({ passengerId: req.params.passengerId });
-    if (!trips || trips.length === 0) {
-      return res.status(404).json({ error: 'No trips found for this passenger' });
+    await dbConnect(); // Ensure DB connection
+    
+    const passengerId = req.params.passengerId;
+    
+    if (!passengerId?.trim()) {
+      return res.status(400).json({ 
+        error: 'Validation failed',
+        message: 'Passenger ID is required' 
+      });
     }
+
+    const trips = await Trip.find({ passengerId: passengerId.trim() })
+      .sort({ tripDate: -1 })
+      .maxTimeMS(10000);
+    
+    if (!trips || trips.length === 0) {
+      return res.status(404).json({ 
+        error: 'Not found',
+        message: 'No trips found for this passenger' 
+      });
+    }
+    
+    console.log(`Fetched ${trips.length} trips for passenger ${passengerId}`);
     res.json(trips);
   } catch (err) {
-    console.error('Error fetching passenger trips:', err.message);
-    res.status(500).json({ error: 'Server Error' });
+    handleError(res, err, 'Failed to fetch passenger trips');
+  }
+});
+
+// @route   GET /api/trips/date/:date
+// @desc    Get trips by specific date
+router.get('/date/:date', async (req, res) => {
+  try {
+    await dbConnect(); // Ensure DB connection
+    
+    const dateParam = req.params.date;
+    const date = new Date(dateParam);
+    
+    if (isNaN(date.getTime())) {
+      return res.status(400).json({ 
+        error: 'Validation failed',
+        message: 'Invalid date format. Use YYYY-MM-DD format' 
+      });
+    }
+
+    // Set date range for the entire day
+    const startDate = new Date(date);
+    startDate.setHours(0, 0, 0, 0);
+    
+    const endDate = new Date(date);
+    endDate.setHours(23, 59, 59, 999);
+
+    const trips = await Trip.find({
+      tripDate: {
+        $gte: startDate,
+        $lte: endDate
+      }
+    })
+    .sort({ tripDate: 1 })
+    .maxTimeMS(10000);
+    
+    console.log(`Fetched ${trips.length} trips for date ${dateParam}`);
+    res.json(trips);
+  } catch (err) {
+    handleError(res, err, 'Failed to fetch trips by date');
   }
 });
 
@@ -83,48 +192,49 @@ router.get('/passenger/:passengerId', async (req, res) => {
 // @desc    Update trip by ID
 router.put('/:id', async (req, res) => {
   try {
+    await dbConnect(); // Ensure DB connection
+    
     const { passengerId, fromOrigin, toDestination, tripDate, confirmed, numberOfPassengers } = req.body;
 
-    // Validate required fields (numberOfPassengers is optional)
-    if (!passengerId || !fromOrigin || !toDestination || !tripDate || typeof confirmed === 'undefined') {
+    // Validate required fields
+    if (!passengerId?.trim() || !fromOrigin?.trim() || !toDestination?.trim() || !tripDate || typeof confirmed === 'undefined') {
       return res.status(400).json({ 
-        error: 'All fields (passengerId, fromOrigin, toDestination, tripDate, confirmed) are required' 
+        error: 'Validation failed',
+        message: 'All fields (passengerId, fromOrigin, toDestination, tripDate, confirmed) are required' 
       });
     }
 
+    const updateData = {
+      passengerId: passengerId.trim(),
+      fromOrigin: fromOrigin.trim(),
+      toDestination: toDestination.trim(),
+      tripDate: new Date(tripDate),
+      confirmed: Boolean(confirmed),
+      numberOfPassengers: numberOfPassengers !== undefined && numberOfPassengers !== null ? 
+        Math.max(1, parseInt(numberOfPassengers) || 1) : 1
+    };
+
     const updatedTrip = await Trip.findByIdAndUpdate(
       req.params.id,
+      { $set: updateData },
       { 
-        $set: { 
-          passengerId,
-          fromOrigin,
-          toDestination,
-          tripDate,
-          confirmed,
-          // Handle numberOfPassengers properly - set to null if undefined
-          numberOfPassengers: numberOfPassengers !== undefined ? numberOfPassengers : null
-        } 
-      },
-      { new: true, runValidators: true }
+        new: true, 
+        runValidators: true,
+        maxTimeMS: 10000 
+      }
     );
 
     if (!updatedTrip) {
-      return res.status(404).json({ error: 'Trip not found' });
+      return res.status(404).json({ 
+        error: 'Not found',
+        message: 'Trip not found' 
+      });
     }
 
+    console.log(`Trip updated: ${updatedTrip._id}`);
     res.json(updatedTrip);
   } catch (err) {
-    console.error('Error updating trip:', err.message);
-    if (err.kind === 'ObjectId') {
-      return res.status(400).json({ error: 'Invalid trip ID format' });
-    }
-    
-    // Handle Mongoose validation errors
-    if (err.name === 'ValidationError') {
-      return res.status(400).json({ error: err.message });
-    }
-    
-    res.status(500).json({ error: 'Server Error' });
+    handleError(res, err, 'Failed to update trip');
   }
 });
 
@@ -132,31 +242,38 @@ router.put('/:id', async (req, res) => {
 // @desc    Update trip confirmation status
 router.patch('/:id/confirm', async (req, res) => {
   try {
+    await dbConnect(); // Ensure DB connection
+    
     const { confirmed } = req.body;
 
     if (typeof confirmed === 'undefined') {
       return res.status(400).json({ 
-        error: 'Confirmed field is required' 
+        error: 'Validation failed',
+        message: 'Confirmed field is required' 
       });
     }
 
     const updatedTrip = await Trip.findByIdAndUpdate(
       req.params.id,
-      { $set: { confirmed } },
-      { new: true, runValidators: true }
+      { $set: { confirmed: Boolean(confirmed) } },
+      { 
+        new: true, 
+        runValidators: true,
+        maxTimeMS: 10000 
+      }
     );
 
     if (!updatedTrip) {
-      return res.status(404).json({ error: 'Trip not found' });
+      return res.status(404).json({ 
+        error: 'Not found',
+        message: 'Trip not found' 
+      });
     }
 
+    console.log(`Trip ${updatedTrip._id} confirmation set to: ${confirmed}`);
     res.json(updatedTrip);
   } catch (err) {
-    console.error('Error confirming trip:', err.message);
-    if (err.kind === 'ObjectId') {
-      return res.status(400).json({ error: 'Invalid trip ID format' });
-    }
-    res.status(500).json({ error: 'Server Error' });
+    handleError(res, err, 'Failed to confirm trip');
   }
 });
 
@@ -164,17 +281,25 @@ router.patch('/:id/confirm', async (req, res) => {
 // @desc    Delete trip by ID
 router.delete('/:id', async (req, res) => {
   try {
-    const deletedTrip = await Trip.findByIdAndDelete(req.params.id);
+    await dbConnect(); // Ensure DB connection
+    
+    const deletedTrip = await Trip.findByIdAndDelete(req.params.id)
+      .maxTimeMS(10000);
+    
     if (!deletedTrip) {
-      return res.status(404).json({ error: 'Trip not found' });
+      return res.status(404).json({ 
+        error: 'Not found',
+        message: 'Trip not found' 
+      });
     }
-    res.json({ message: 'Trip deleted successfully' });
+    
+    console.log(`Trip deleted: ${deletedTrip._id}`);
+    res.json({ 
+      message: 'Trip deleted successfully',
+      tripId: deletedTrip._id 
+    });
   } catch (err) {
-    console.error('Error deleting trip:', err.message);
-    if (err.kind === 'ObjectId') {
-      return res.status(400).json({ error: 'Invalid trip ID format' });
-    }
-    res.status(500).json({ error: 'Server Error' });
+    handleError(res, err, 'Failed to delete trip');
   }
 });
 
@@ -182,25 +307,33 @@ router.delete('/:id', async (req, res) => {
 // @desc    Increment number of passengers
 router.patch('/:id/passengers/increment', async (req, res) => {
   try {
+    await dbConnect(); // Ensure DB connection
+    
     const updatedTrip = await Trip.findByIdAndUpdate(
       req.params.id,
       { 
-        $inc: { numberOfPassengers: 1 } // Increment by 1
+        $inc: { numberOfPassengers: 1 },
+        $setOnInsert: { numberOfPassengers: 2 } // If field doesn't exist, set to 2
       },
-      { new: true, runValidators: true }
+      { 
+        new: true, 
+        runValidators: true,
+        upsert: false,
+        maxTimeMS: 10000 
+      }
     );
 
     if (!updatedTrip) {
-      return res.status(404).json({ error: 'Trip not found' });
+      return res.status(404).json({ 
+        error: 'Not found',
+        message: 'Trip not found' 
+      });
     }
 
+    console.log(`Incremented passengers for trip ${updatedTrip._id}: ${updatedTrip.numberOfPassengers}`);
     res.json(updatedTrip);
   } catch (err) {
-    console.error('Error incrementing passengers:', err.message);
-    if (err.kind === 'ObjectId') {
-      return res.status(400).json({ error: 'Invalid trip ID format' });
-    }
-    res.status(500).json({ error: 'Server Error' });
+    handleError(res, err, 'Failed to increment passengers');
   }
 });
 
@@ -208,34 +341,39 @@ router.patch('/:id/passengers/increment', async (req, res) => {
 // @desc    Decrement number of passengers (minimum 1)
 router.patch('/:id/passengers/decrement', async (req, res) => {
   try {
-    // First get the current trip to check the current value
-    const currentTrip = await Trip.findById(req.params.id);
-    if (!currentTrip) {
-      return res.status(404).json({ error: 'Trip not found' });
-    }
-
-    const currentPassengerCount = currentTrip.numberOfPassengers || 0;
+    await dbConnect(); // Ensure DB connection
     
-    // Don't decrement below 1
-    if (currentPassengerCount <= 1) {
-      return res.status(400).json({ error: 'Number of passengers cannot be less than 1' });
-    }
-
-    const updatedTrip = await Trip.findByIdAndUpdate(
-      req.params.id,
+    // Use findOneAndUpdate with condition to prevent going below 1
+    const updatedTrip = await Trip.findOneAndUpdate(
       { 
-        $inc: { numberOfPassengers: -1 } // Decrement by 1
+        _id: req.params.id,
+        $or: [
+          { numberOfPassengers: { $gt: 1 } },
+          { numberOfPassengers: { $exists: false } }
+        ]
       },
-      { new: true, runValidators: true }
+      { 
+        $inc: { numberOfPassengers: -1 },
+        $setOnInsert: { numberOfPassengers: 1 } // Ensure minimum of 1
+      },
+      { 
+        new: true, 
+        runValidators: true,
+        maxTimeMS: 10000 
+      }
     );
 
+    if (!updatedTrip) {
+      return res.status(400).json({ 
+        error: 'Validation failed',
+        message: 'Number of passengers cannot be less than 1' 
+      });
+    }
+
+    console.log(`Decremented passengers for trip ${updatedTrip._id}: ${updatedTrip.numberOfPassengers}`);
     res.json(updatedTrip);
   } catch (err) {
-    console.error('Error decrementing passengers:', err.message);
-    if (err.kind === 'ObjectId') {
-      return res.status(400).json({ error: 'Invalid trip ID format' });
-    }
-    res.status(500).json({ error: 'Server Error' });
+    handleError(res, err, 'Failed to decrement passengers');
   }
 });
 
@@ -243,37 +381,46 @@ router.patch('/:id/passengers/decrement', async (req, res) => {
 // @desc    Set specific number of passengers
 router.patch('/:id/passengers/set', async (req, res) => {
   try {
+    await dbConnect(); // Ensure DB connection
+    
     const { numberOfPassengers } = req.body;
 
-    if (typeof numberOfPassengers === 'undefined') {
+    if (numberOfPassengers === undefined || numberOfPassengers === null) {
       return res.status(400).json({ 
-        error: 'numberOfPassengers field is required' 
+        error: 'Validation failed',
+        message: 'numberOfPassengers field is required' 
       });
     }
 
-    if (numberOfPassengers < 1 || !Number.isInteger(numberOfPassengers)) {
+    const passengerCount = parseInt(numberOfPassengers);
+    if (isNaN(passengerCount) || passengerCount < 1) {
       return res.status(400).json({ 
-        error: 'numberOfPassengers must be a positive integer' 
+        error: 'Validation failed',
+        message: 'numberOfPassengers must be a positive integer' 
       });
     }
 
     const updatedTrip = await Trip.findByIdAndUpdate(
       req.params.id,
-      { $set: { numberOfPassengers } },
-      { new: true, runValidators: true }
+      { $set: { numberOfPassengers: passengerCount } },
+      { 
+        new: true, 
+        runValidators: true,
+        maxTimeMS: 10000 
+      }
     );
 
     if (!updatedTrip) {
-      return res.status(404).json({ error: 'Trip not found' });
+      return res.status(404).json({ 
+        error: 'Not found',
+        message: 'Trip not found' 
+      });
     }
 
+    console.log(`Set passengers for trip ${updatedTrip._id} to: ${passengerCount}`);
     res.json(updatedTrip);
   } catch (err) {
-    console.error('Error setting passengers:', err.message);
-    if (err.kind === 'ObjectId') {
-      return res.status(400).json({ error: 'Invalid trip ID format' });
-    }
-    res.status(500).json({ error: 'Server Error' });
+    handleError(res, err, 'Failed to set passengers');
   }
 });
 
