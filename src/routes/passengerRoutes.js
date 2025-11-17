@@ -94,6 +94,60 @@ router.get('/:id', auth, async (req, res) => {
   }
 });
 
+// @route   PUT /api/passengers
+// @desc    Update passenger (alternative endpoint that accepts ID in body)
+router.put('/', [auth, admin], async (req, res) => {
+  try {
+    await dbConnect(); // Ensure DB connection
+    
+    // Extract fields from body, including _id
+    const { _id, firstName, lastName, jobRole } = req.body;
+
+    // Validate required fields
+    if (!_id) {
+      return res.status(400).json({ 
+        error: 'Validation failed',
+        message: 'Passenger ID is required' 
+      });
+    }
+
+    if (!firstName?.trim() || !lastName?.trim()) {
+      return res.status(400).json({ 
+        error: 'Validation failed',
+        message: 'First name and last name are required and cannot be empty'
+      });
+    }
+
+    const updateData = {
+      firstName: firstName.trim(),
+      lastName: lastName.trim(),
+      ...(jobRole !== undefined && { jobRole: jobRole?.trim() || '' })
+    };
+
+    const updatedPassenger = await Passenger.findByIdAndUpdate(
+      _id,
+      { $set: updateData },
+      { 
+        new: true, 
+        runValidators: true,
+        maxTimeMS: 10000 
+      }
+    );
+
+    if (!updatedPassenger) {
+      return res.status(404).json({ 
+        error: 'Not found',
+        message: 'Passenger not found' 
+      });
+    }
+
+    console.log(`Passenger updated via /passengers endpoint: ${updatedPassenger.firstName} ${updatedPassenger.lastName}`);
+    res.json(updatedPassenger);
+  } catch (err) {
+    handleError(res, err, 'Failed to update passenger');
+  }
+});
+
 // @route   PUT /api/passengers/:id
 // @desc    Update passenger by ID
 router.put('/:id', [auth, admin], async (req, res) => {
