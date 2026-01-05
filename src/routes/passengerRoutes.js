@@ -4,7 +4,7 @@ const Passenger = require('../models/passengerModel');
 const Trip = require('../models/tripModel');
 const auth = require('../middleware/auth');
 const admin = require('../middleware/admin');
-const dbConnect = require('../lib/mongodb'); // Import the connection helpers
+const dbConnect = require('../lib/mongodb'); // Import the connection helperss
 
 // Helper function for error responses
 const handleError = (res, error, customMessage = 'Server Error') => {
