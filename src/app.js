@@ -151,6 +151,6 @@ if (process.env.VERCEL) {
     console.log('- /api/users');
     console.log('- /api/passengers');
     console.log('- /api/trips');
-    console.log('- /api/sites'); // Add this line
+    console.log('- /api/sites'); // Add this
   });
 }
