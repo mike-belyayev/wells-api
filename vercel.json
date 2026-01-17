@@ -11,7 +11,7 @@
       "src": "/api/.*",
       "dest": "src/app.js",
       "headers": {
-        "Access-Control-Allow-Origin": "https://wells-logistics.vercel.app, https://wells-logistics.vercel.app",
+        "Access-Control-Allow-Origin": "https://wells-logistics-dev.vercel.app",
         "Access-Control-Allow-Methods": "GET,POST,PUT,DELETE,OPTIONS",
         "Access-Control-Allow-Headers": "Content-Type, Authorization",
         "Access-Control-Allow-Credentials": "true",
