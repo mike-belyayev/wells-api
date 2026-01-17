@@ -23,6 +23,7 @@ initializeDB();
 app.use((req, res, next) => {
   const allowedOrigins = [
     'https://wells-logistics.vercel.app',
+    'https://wells-logistics-dev.vercel.app',
     'http://localhost:5174',
     process.env.FRONTEND_URL,
     ...(process.env.NODE_ENV === 'development' ? ['http://localhost:*'] : [])
@@ -142,6 +143,7 @@ if (process.env.VERCEL) {
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log('Allowed CORS origins:', [
       'https://wells-logistics.vercel.app',
+      'https://wells-logistics-dev.vercel.app',
       'http://localhost:5174',
       process.env.FRONTEND_URL
     ].filter(Boolean).join(', '));
