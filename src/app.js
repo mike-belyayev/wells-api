@@ -19,29 +19,32 @@ const initializeDB = () => {
 };
 initializeDB();
 
-// SUPER PERMISSIVE CORS Middleware - FOR DEBUGGING ONLY
+// Enhanced CORS Middleware (replaces cors package)
 app.use((req, res, next) => {
+  const allowedOrigins = [
+    'https://wells-logistics.vercel.app',
+    'https://wells-logistics-dev.vercel.app',
+    'http://localhost:5174',
+    process.env.FRONTEND_URL,
+    ...(process.env.NODE_ENV === 'development' ? ['http://localhost:*'] : [])
+  ].filter(Boolean);
+
   const origin = req.headers.origin;
-  
-  // Allow EVERYTHING
-  if (origin) {
+  if (allowedOrigins.some(allowedOrigin => 
+    origin?.match(new RegExp(allowedOrigin.replace('*', '.*')))
+  )) {
     res.setHeader('Access-Control-Allow-Origin', origin);
-    console.log(`CORS DEBUG: Allowed ${origin}`);
-    res.header('Access-Control-Allow-Credentials', 'true');
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
   }
-  
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Auth-Token');
-  res.header('Access-Control-Expose-Headers', 'Content-Length, Content-Type, Authorization');
-  res.header('Vary', 'Origin');
-  
+
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Vary', 'Origin'); // Important for caching
+
+  // Handle preflight requests
   if (req.method === 'OPTIONS') {
-    console.log('CORS: Handling OPTIONS preflight');
     return res.sendStatus(204);
   }
-  
   next();
 });
 
@@ -53,19 +56,7 @@ app.use(express.urlencoded({ extended: true }));
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/passengers', require('./routes/passengerRoutes'));
 app.use('/api/trips', require('./routes/tripRoutes'));
-app.use('/api/sites', require('./routes/siteRoutes'));
-
-// Add CORS Test Endpoint (for debugging)
-app.get('/api/cors-test', (req, res) => {
-  res.json({
-    message: 'CORS test endpoint',
-    timestamp: new Date().toISOString(),
-    origin: req.headers.origin,
-    allowedOrigin: res.getHeader('Access-Control-Allow-Origin'),
-    hasCredentials: res.getHeader('Access-Control-Allow-Credentials') === 'true',
-    note: 'If hasCredentials is false, your frontend cannot send cookies/auth headers'
-  });
-});
+app.use('/api/sites', require('./routes/siteRoutes')); // Add this line
 
 // Health Check Endpoint
 app.get('/api/health', (req, res) => {
@@ -77,15 +68,13 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     cors: {
       origin: req.headers.origin,
-      allowed: res.getHeader('Access-Control-Allow-Origin'),
-      credentials: res.getHeader('Access-Control-Allow-Credentials')
+      allowed: res.getHeader('Access-Control-Allow-Origin')
     },
     endpoints: {
       users: '/api/users',
       passengers: '/api/passengers',
       trips: '/api/trips',
-      sites: '/api/sites',
-      corsTest: '/api/cors-test'
+      sites: '/api/sites' // Add this line
     }
   });
 });
@@ -100,26 +89,15 @@ app.get(['/', '/api'], async (req, res) => {
     res.json({ 
       message: 'API is working',
       environment: process.env.NODE_ENV || 'development',
-      corsMode: 'All origins allowed (debug mode)',
       endpoints: {
         health: '/api/health',
-        corsTest: '/api/cors-test',
         users: '/api/users',
         passengers: '/api/passengers',
         trips: '/api/trips',
-        sites: '/api/sites'
+        sites: '/api/sites' // Add this line
       }
     });
   } catch (err) {
-    // Ensure CORS headers on error responses
-    const origin = req.headers.origin;
-    if (origin) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.header('Access-Control-Allow-Credentials', 'true');
-    } else {
-      res.setHeader('Access-Control-Allow-Origin', '*');
-    }
-    
     res.status(500).json({
       error: 'Database connection error',
       details: process.env.NODE_ENV === 'development' ? err.message : undefined
@@ -139,16 +117,8 @@ function getDbStatusText(status) {
   return states[status] || states[99];
 }
 
-// Error Handlers with CORS headers
+// Error Handlers
 app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', 'true');
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
-  
   res.status(404).json({ 
     error: 'Endpoint not found',
     requestedPath: req.path
@@ -157,15 +127,6 @@ app.use((req, res, next) => {
 
 app.use((err, req, res, next) => {
   console.error('API Error:', err.stack);
-  
-  const origin = req.headers.origin;
-  if (origin) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.header('Access-Control-Allow-Credentials', 'true');
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
-  }
-  
   res.status(500).json({
     error: 'Internal Server Error',
     message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
@@ -180,14 +141,16 @@ if (process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log('CORS Policy: Allowing ALL origins (debug mode)');
-    console.log('Note: Credentials only allowed with specific origins');
-    console.log('Test endpoints:');
-    console.log('- /api/cors-test (CORS debugging)');
-    console.log('- /api/health (Health check)');
-    console.log('- /api/users (User routes)');
-    console.log('- /api/passengers (Passenger routes)');
-    console.log('- /api/trips (Trip routes)');
-    console.log('- /api/sites (Site routes)');
+    console.log('Allowed CORS origins:', [
+      'https://wells-logistics.vercel.app',
+      'https://wells-logistics-dev.vercel.app',
+      'http://localhost:5174',
+      process.env.FRONTEND_URL
+    ].filter(Boolean).join(', '));
+    console.log('Available routes:');
+    console.log('- /api/users');
+    console.log('- /api/passengers');
+    console.log('- /api/trips');
+    console.log('- /api/sites'); // Add this line
   });
 }
