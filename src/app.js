@@ -19,27 +19,26 @@ const initializeDB = () => {
 };
 initializeDB();
 
-// FIXED CORS Middleware
+// SUPER PERMISSIVE CORS Middleware - FOR DEBUGGING ONLY
 app.use((req, res, next) => {
   const origin = req.headers.origin;
   
-  // Allow ALL origins (for debugging)
+  // Allow EVERYTHING
   if (origin) {
     res.setHeader('Access-Control-Allow-Origin', origin);
     console.log(`CORS DEBUG: Allowed ${origin}`);
-    // Only set credentials header when we have a specific origin (not wildcard)
     res.header('Access-Control-Allow-Credentials', 'true');
   } else {
     res.setHeader('Access-Control-Allow-Origin', '*');
-    // Cannot use credentials with wildcard (*), so don't set this header
   }
   
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin, X-Auth-Token');
+  res.header('Access-Control-Expose-Headers', 'Content-Length, Content-Type, Authorization');
   res.header('Vary', 'Origin');
   
   if (req.method === 'OPTIONS') {
-    console.log('CORS: OPTIONS preflight');
+    console.log('CORS: Handling OPTIONS preflight');
     return res.sendStatus(204);
   }
   
