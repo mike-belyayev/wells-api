@@ -57,7 +57,7 @@ app.use((req, res, next) => {
   // Common headers for all environments
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  res.header('Vary', 'Origin'); // Important for caching
+  res.header('Vary', 'Origin'); // Important for caching.
 
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
