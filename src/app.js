@@ -19,49 +19,27 @@ const initializeDB = () => {
 };
 initializeDB();
 
-// Enhanced CORS Middleware - Environment-based rules
+// FIXED CORS Middleware
 app.use((req, res, next) => {
-  const environment = process.env.VERCEL_ENV || process.env.NODE_ENV || 'development';
-  const isProduction = environment === 'production';
   const origin = req.headers.origin;
   
-  console.log(`CORS: Environment=${environment}, Origin=${origin || 'none'}`);
-  
-  // Production: Strict CORS rules
-  if (isProduction) {
-    const productionOrigins = [
-      'https://wells-logistics.vercel.app',
-      // Add other production domains if needed
-      process.env.PRODUCTION_FRONTEND_URL
-    ].filter(Boolean);
-    
-    if (origin && productionOrigins.includes(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.header('Access-Control-Allow-Credentials', 'true');
-      console.log(`Production CORS: Allowed ${origin}`);
-    }
-  } 
-  // Non-production: Allow all origins
-  else {
-    // Allow any origin in development/preview
-    if (origin) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.header('Access-Control-Allow-Credentials', 'true');
-      console.log(`Non-production CORS: Allowed ${origin}`);
-    } else {
-      // For requests without Origin header (e.g., curl, direct access)
-      res.setHeader('Access-Control-Allow-Origin', '*');
-    }
+  // Allow ALL origins (for debugging)
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    console.log(`CORS DEBUG: Allowed ${origin}`);
+    // Only set credentials header when we have a specific origin (not wildcard)
+    res.header('Access-Control-Allow-Credentials', 'true');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    // Cannot use credentials with wildcard (*), so don't set this header
   }
-
-  // Common headers for all environments
+  
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  res.header('Vary', 'Origin'); // Important for caching.
-
-  // Handle preflight requests
+  res.header('Vary', 'Origin');
+  
   if (req.method === 'OPTIONS') {
-    console.log('CORS: Handling OPTIONS preflight');
+    console.log('CORS: OPTIONS preflight');
     return res.sendStatus(204);
   }
   
@@ -78,6 +56,18 @@ app.use('/api/passengers', require('./routes/passengerRoutes'));
 app.use('/api/trips', require('./routes/tripRoutes'));
 app.use('/api/sites', require('./routes/siteRoutes'));
 
+// Add CORS Test Endpoint (for debugging)
+app.get('/api/cors-test', (req, res) => {
+  res.json({
+    message: 'CORS test endpoint',
+    timestamp: new Date().toISOString(),
+    origin: req.headers.origin,
+    allowedOrigin: res.getHeader('Access-Control-Allow-Origin'),
+    hasCredentials: res.getHeader('Access-Control-Allow-Credentials') === 'true',
+    note: 'If hasCredentials is false, your frontend cannot send cookies/auth headers'
+  });
+});
+
 // Health Check Endpoint
 app.get('/api/health', (req, res) => {
   const dbStatus = mongoose.connection?.readyState;
@@ -86,34 +76,18 @@ app.get('/api/health', (req, res) => {
     dbState: dbStatus,
     dbStatusText: getDbStatusText(dbStatus),
     timestamp: new Date().toISOString(),
-    environment: process.env.VERCEL_ENV || process.env.NODE_ENV || 'development',
     cors: {
       origin: req.headers.origin,
       allowed: res.getHeader('Access-Control-Allow-Origin'),
-      environment: process.env.VERCEL_ENV || process.env.NODE_ENV || 'development'
+      credentials: res.getHeader('Access-Control-Allow-Credentials')
     },
     endpoints: {
       users: '/api/users',
       passengers: '/api/passengers',
       trips: '/api/trips',
-      sites: '/api/sites'
+      sites: '/api/sites',
+      corsTest: '/api/cors-test'
     }
-  });
-});
-
-// Environment Info Endpoint (for debugging)
-app.get('/api/env-info', (req, res) => {
-  res.json({
-    environment: process.env.NODE_ENV,
-    vercelEnv: process.env.VERCEL_ENV,
-    vercelUrl: process.env.VERCEL_URL,
-    origin: req.headers.origin,
-    allowedOrigin: res.getHeader('Access-Control-Allow-Origin'),
-    isProduction: (process.env.VERCEL_ENV || process.env.NODE_ENV) === 'production',
-    timestamp: new Date().toISOString(),
-    message: (process.env.VERCEL_ENV || process.env.NODE_ENV) === 'production' 
-      ? 'Production mode - strict CORS' 
-      : 'Non-production mode - relaxed CORS'
   });
 });
 
@@ -126,11 +100,11 @@ app.get(['/', '/api'], async (req, res) => {
     
     res.json({ 
       message: 'API is working',
-      environment: process.env.VERCEL_ENV || process.env.NODE_ENV || 'development',
-      corsMode: (process.env.VERCEL_ENV || process.env.NODE_ENV) === 'production' ? 'strict' : 'relaxed',
+      environment: process.env.NODE_ENV || 'development',
+      corsMode: 'All origins allowed (debug mode)',
       endpoints: {
         health: '/api/health',
-        envInfo: '/api/env-info',
+        corsTest: '/api/cors-test',
         users: '/api/users',
         passengers: '/api/passengers',
         trips: '/api/trips',
@@ -138,6 +112,15 @@ app.get(['/', '/api'], async (req, res) => {
       }
     });
   } catch (err) {
+    // Ensure CORS headers on error responses
+    const origin = req.headers.origin;
+    if (origin) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.header('Access-Control-Allow-Credentials', 'true');
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+    
     res.status(500).json({
       error: 'Database connection error',
       details: process.env.NODE_ENV === 'development' ? err.message : undefined
@@ -157,21 +140,36 @@ function getDbStatusText(status) {
   return states[status] || states[99];
 }
 
-// Error Handlers
+// Error Handlers with CORS headers
 app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  
   res.status(404).json({ 
     error: 'Endpoint not found',
-    requestedPath: req.path,
-    environment: process.env.VERCEL_ENV || process.env.NODE_ENV || 'development'
+    requestedPath: req.path
   });
 });
 
 app.use((err, req, res, next) => {
   console.error('API Error:', err.stack);
+  
+  const origin = req.headers.origin;
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+  } else {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
+  
   res.status(500).json({
     error: 'Internal Server Error',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong',
-    environment: process.env.VERCEL_ENV || process.env.NODE_ENV || 'development'
+    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
   });
 });
 
@@ -183,14 +181,14 @@ if (process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`Vercel Environment: ${process.env.VERCEL_ENV || 'not set'}`);
-    console.log('CORS Mode:', (process.env.VERCEL_ENV || process.env.NODE_ENV) === 'production' ? 'Production (strict)' : 'Development/Preview (relaxed)');
-    console.log('Available routes:');
-    console.log('- /api/health');
-    console.log('- /api/env-info');
-    console.log('- /api/users');
-    console.log('- /api/passengers');
-    console.log('- /api/trips');
-    console.log('- /api/sites');
+    console.log('CORS Policy: Allowing ALL origins (debug mode)');
+    console.log('Note: Credentials only allowed with specific origins');
+    console.log('Test endpoints:');
+    console.log('- /api/cors-test (CORS debugging)');
+    console.log('- /api/health (Health check)');
+    console.log('- /api/users (User routes)');
+    console.log('- /api/passengers (Passenger routes)');
+    console.log('- /api/trips (Trip routes)');
+    console.log('- /api/sites (Site routes)');
   });
 }

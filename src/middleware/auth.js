@@ -1,8 +1,19 @@
 const jwt = require('jsonwebtoken');
 const User = require('../models/userModel');
-const dbConnect = require('../lib/mongodb'); // Import the new connection helper
+const dbConnect = require('../lib/mongodb');
+
+// Helper function to add CORS headers to error responses
+const addCorsHeaders = (res, origin) => {
+  if (origin && (origin.endsWith('.vercel.app') || origin.includes('localhost'))) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.header('Access-Control-Allow-Credentials', 'true');
+  }
+  res.header('Vary', 'Origin');
+};
 
 const auth = async (req, res, next) => {
+  const origin = req.headers.origin;
+  
   try {
     // Ensure database connection
     await dbConnect();
@@ -11,6 +22,7 @@ const auth = async (req, res, next) => {
     
     // More robust header validation
     if (!authHeader) {
+      addCorsHeaders(res, origin);
       return res.status(401).json({ 
         error: 'Authentication required',
         message: 'No authorization header provided'
@@ -18,6 +30,7 @@ const auth = async (req, res, next) => {
     }
     
     if (!authHeader.startsWith('Bearer ')) {
+      addCorsHeaders(res, origin);
       return res.status(401).json({ 
         error: 'Invalid token format',
         message: 'Authorization header must start with "Bearer "'
@@ -27,6 +40,7 @@ const auth = async (req, res, next) => {
     const token = authHeader.replace('Bearer ', '').trim();
     
     if (!token) {
+      addCorsHeaders(res, origin);
       return res.status(401).json({ 
         error: 'Invalid token',
         message: 'Token is missing after Bearer prefix'
@@ -38,10 +52,11 @@ const auth = async (req, res, next) => {
     
     // Find user with query timeout
     const user = await User.findById(decoded._id)
-      .select('-password') // Exclude password for security
-      .maxTimeMS(10000); // Add query timeout
+      .select('-password')
+      .maxTimeMS(10000);
     
     if (!user) {
+      addCorsHeaders(res, origin);
       return res.status(401).json({ 
         error: 'Invalid token',
         message: 'User not found'
@@ -56,6 +71,8 @@ const auth = async (req, res, next) => {
     next();
   } catch (err) {
     console.error('Auth middleware error:', err);
+    
+    addCorsHeaders(res, origin);
     
     // More specific error responses
     if (err.name === 'JsonWebTokenError') {
