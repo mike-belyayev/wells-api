@@ -1,163 +1,170 @@
-// src/app.js - RESTORE ORIGINAL WITH CORS FIX
+// src/app.js - CLEAN WORKING VERSION
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
-const cors = require('cors'); // Add this line
-const connectDB = require('./config/db');
+const dbConnect = require('./lib/mongodb');
 
 const app = express();
 
-// Database Connection Logic
-const initializeDB = () => {
-  if (process.env.VERCEL) {
-    // Serverless-friendly connection for Vercel
-    connectDB().catch(err => {
-      console.error('Vercel DB connection error:', err);
-    });
-  } else {
-    // Regular connection for local/dev
-    connectDB();
-  }
-};
-initializeDB();
-
-// ========== SIMPLE CORS FIX ==========
-// Keep your original middleware, but add this line FIRST:
-app.use(cors({
-  origin: '*', // Allow all origins
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With']
-}));
-
-// Keep your original enhanced CORS middleware below it (it won't break anything)
+// ========== SIMPLE CORS ==========
 app.use((req, res, next) => {
   const allowedOrigins = [
+    'http://localhost:5174',
     'https://wells-logistics.vercel.app',
     'https://wells-logistics-dev.vercel.app',
-    'http://localhost:5174',
-    process.env.FRONTEND_URL,
-    ...(process.env.NODE_ENV === 'development' ? ['http://localhost:*'] : [])
-  ].filter(Boolean);
-
+    // Match ALL Vercel preview deployments
+    /\.vercel\.app$/
+  ];
+  
   const origin = req.headers.origin;
-  if (allowedOrigins.some(allowedOrigin => 
-    origin?.match(new RegExp(allowedOrigin.replace('*', '.*')))
-  )) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
+  
+  // Check if origin matches any allowed pattern
+  const isAllowed = allowedOrigins.some(pattern => {
+    if (typeof pattern === 'string') {
+      return origin === pattern;
+    }
+    if (pattern instanceof RegExp) {
+      return pattern.test(origin);
+    }
+    return false;
+  });
+  
+  if (isAllowed || !origin) {
+    res.header('Access-Control-Allow-Origin', origin || '*');
   }
-
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
   res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Vary', 'Origin');
-
+  
   // Handle preflight requests
   if (req.method === 'OPTIONS') {
-    return res.sendStatus(204);
+    return res.status(200).end();
   }
+  
   next();
 });
-// ========== END CORS FIX ==========
 
-// Middleware
+// ========== MIDDLEWARE ==========
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// API Routes
+// ========== DATABASE CONNECTION ==========
+const initializeDB = () => {
+  dbConnect().catch(err => {
+    console.error('Database connection error:', err.message);
+  });
+};
+initializeDB();
+
+// ========== ROUTES ==========
+// Load routes directly (your routes work fine!)
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/passengers', require('./routes/passengerRoutes'));
 app.use('/api/trips', require('./routes/tripRoutes'));
 app.use('/api/sites', require('./routes/siteRoutes'));
 
-// Health Check Endpoint
+// ========== HEALTH CHECK ==========
 app.get('/api/health', (req, res) => {
   const dbStatus = mongoose.connection?.readyState;
-  res.json({ 
+  const statusText = ['disconnected', 'connected', 'connecting', 'disconnecting'][dbStatus] || 'unknown';
+  
+  res.json({
     status: 'OK',
-    dbState: dbStatus,
-    dbStatusText: getDbStatusText(dbStatus),
+    db: {
+      state: dbStatus,
+      status: statusText,
+      connected: dbStatus === 1
+    },
     timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
     cors: {
       origin: req.headers.origin,
-      allowed: res.getHeader('Access-Control-Allow-Origin')
-    },
+      note: 'Configured for all Vercel deployments'
+    }
+  });
+});
+
+// ========== ROOT ENDPOINT ==========
+app.get(['/', '/api'], (req, res) => {
+  res.json({
+    message: 'Wells Guyana API',
+    version: '1.0.0',
+    environment: process.env.NODE_ENV || 'development',
+    isVercel: !!process.env.VERCEL,
     endpoints: {
+      health: '/api/health',
       users: '/api/users',
       passengers: '/api/passengers',
       trips: '/api/trips',
       sites: '/api/sites'
+    },
+    cors: {
+      allowedOrigins: [
+        'http://localhost:5174',
+        'https://wells-logistics.vercel.app',
+        'https://wells-logistics-dev.vercel.app',
+        'All *.vercel.app domains'
+      ]
     }
   });
 });
 
-// Root Endpoint
-app.get(['/', '/api'], async (req, res) => {
-  try {
-    if (mongoose.connection.readyState !== 1) {
-      await connectDB();
-    }
-    
-    res.json({ 
-      message: 'API is working',
-      environment: process.env.NODE_ENV || 'development',
-      endpoints: {
-        health: '/api/health',
-        users: '/api/users',
-        passengers: '/api/passengers',
-        trips: '/api/trips',
-        sites: '/api/sites'
-      }
-    });
-  } catch (err) {
-    res.status(500).json({
-      error: 'Database connection error',
-      details: process.env.NODE_ENV === 'development' ? err.message : undefined
-    });
-  }
-});
-
-// Helper function for DB status
-function getDbStatusText(status) {
-  const states = {
-    0: 'Disconnected',
-    1: 'Connected',
-    2: 'Connecting',
-    3: 'Disconnecting',
-    99: 'Unknown'
-  };
-  return states[status] || states[99];
-}
-
-// Error Handlers
-app.use((req, res, next) => {
-  res.status(404).json({ 
+// ========== ERROR HANDLERS ==========
+// 404 Handler
+app.use((req, res) => {
+  res.status(404).json({
     error: 'Endpoint not found',
-    requestedPath: req.path
+    path: req.path,
+    method: req.method
   });
 });
 
+// Global error handler
 app.use((err, req, res, next) => {
   console.error('API Error:', err.stack);
+  
+  // CORS-specific errors
+  if (err.message && err.message.includes('CORS')) {
+    return res.status(403).json({
+      error: 'CORS Error',
+      message: `Origin ${req.headers.origin || 'unknown'} not allowed`,
+      allowedOrigins: [
+        'http://localhost:5174',
+        'https://wells-logistics.vercel.app',
+        'https://wells-logistics-dev.vercel.app',
+        'All *.vercel.app domains'
+      ]
+    });
+  }
+  
   res.status(500).json({
     error: 'Internal Server Error',
     message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
   });
 });
 
-// Server Export
+// ========== SERVER START ==========
 if (process.env.VERCEL) {
+  // Export for Vercel serverless
   module.exports = app;
 } else {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {
+    console.log('='.repeat(50));
     console.log(`✅ Server running on port ${PORT}`);
     console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log('🔓 CORS: Enabled for all origins');
-    console.log('📡 Available routes:');
-    console.log('   - /api/users');
-    console.log('   - /api/passengers');
-    console.log('   - /api/trips');
-    console.log('   - /api/sites');
-    console.log('   - /api/health (for testing)');
+    console.log('🔓 CORS: Enabled for:');
+    console.log('   • http://localhost:5174');
+    console.log('   • https://wells-logistics.vercel.app');
+    console.log('   • https://wells-logistics-dev.vercel.app');
+    console.log('   • All *.vercel.app domains (including previews)');
+    console.log('='.repeat(50));
+    console.log('\n📡 Available endpoints:');
+    console.log('   http://localhost:3000/api/health');
+    console.log('   http://localhost:3000/api/users');
+    console.log('   http://localhost:3000/api/passengers');
+    console.log('   http://localhost:3000/api/trips');
+    console.log('   http://localhost:3000/api/sites');
   });
 }
