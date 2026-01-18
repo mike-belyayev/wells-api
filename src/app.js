@@ -109,7 +109,7 @@ app.use((err, req, res, next) => {
   });
 });
 
-// ========== SERVER START =========
+// ========== SERVER START ==========
 if (process.env.VERCEL) {
   // Export for Vercel serverless
   module.exports = app;
