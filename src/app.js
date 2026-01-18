@@ -1,6 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
+const cors = require('cors'); // Added CORS package
 const connectDB = require('./config/db');
 
 const app = express();
@@ -19,46 +20,80 @@ const initializeDB = () => {
 };
 initializeDB();
 
-// Enhanced CORS Middleware (replaces cors package)
-app.use((req, res, next) => {
-  const allowedOrigins = [
-    'https://wells-logistics.vercel.app',
-    'https://wells-logistics-dev.vercel.app',
-    'http://localhost:5174',
-    process.env.FRONTEND_URL,
-    ...(process.env.NODE_ENV === 'development' ? ['http://localhost:*'] : [])
-  ].filter(Boolean);
+// CORS Configuration
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps, curl, postman)
+    if (!origin && process.env.NODE_ENV === 'development') {
+      return callback(null, true);
+    }
+    
+    // List of allowed origins
+    const allowedOrigins = [
+      'https://wells-logistics.vercel.app',
+      'https://wells-logistics-dev.vercel.app',
+      'http://localhost:5174',
+      'http://localhost:5173',
+      process.env.FRONTEND_URL
+    ].filter(Boolean);
+    
+    // Allow all origins in development for easier testing
+    if (process.env.NODE_ENV === 'development') {
+      return callback(null, true);
+    }
+    
+    // Check if origin is in allowed list
+    if (allowedOrigins.includes(origin) || !origin) {
+      callback(null, true);
+    } else {
+      console.log('CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true, // Allow cookies if needed
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-Requested-With',
+    'Accept',
+    'Origin',
+    'Access-Control-Request-Method',
+    'Access-Control-Request-Headers'
+  ],
+  exposedHeaders: [
+    'Content-Range',
+    'X-Content-Range',
+    'Content-Disposition',
+    'Authorization'
+  ],
+  maxAge: 86400, // 24 hours for preflight cache
+  optionsSuccessStatus: 204
+};
 
-  const origin = req.headers.origin;
-  if (allowedOrigins.some(allowedOrigin => 
-    origin?.match(new RegExp(allowedOrigin.replace('*', '.*')))
-  )) {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-  }
+// Use CORS middleware
+app.use(cors(corsOptions));
 
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Vary', 'Origin'); // Important for caching
-
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    return res.sendStatus(204);
-  }
-  next();
-});
+// Handle preflight requests explicitly
+app.options('*', cors(corsOptions));
 
 // Middleware
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Logging middleware for debugging CORS
+app.use((req, res, next) => {
+  console.log(`${req.method} ${req.path} - Origin: ${req.headers.origin}`);
+  next();
+});
+
 // API Routes
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/passengers', require('./routes/passengerRoutes'));
 app.use('/api/trips', require('./routes/tripRoutes'));
-app.use('/api/sites', require('./routes/siteRoutes')); // Add this line
+app.use('/api/sites', require('./routes/siteRoutes'));
 
-// Health Check Endpoint
+// Health Check Endpoint with CORS info
 app.get('/api/health', (req, res) => {
   const dbStatus = mongoose.connection?.readyState;
   res.json({ 
@@ -68,14 +103,34 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     cors: {
       origin: req.headers.origin,
-      allowed: res.getHeader('Access-Control-Allow-Origin')
+      allowed: true,
+      environment: process.env.NODE_ENV || 'development'
     },
     endpoints: {
       users: '/api/users',
       passengers: '/api/passengers',
       trips: '/api/trips',
-      sites: '/api/sites' // Add this line
+      sites: '/api/sites'
     }
+  });
+});
+
+// Test endpoint for CORS
+app.get('/api/cors-test', (req, res) => {
+  res.json({
+    message: 'CORS test successful',
+    origin: req.headers.origin,
+    headers: req.headers,
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Auth test endpoint
+app.get('/api/auth-test', require('./middleware/auth'), (req, res) => {
+  res.json({
+    message: 'Authentication successful',
+    user: req.user,
+    timestamp: new Date().toISOString()
   });
 });
 
@@ -89,12 +144,18 @@ app.get(['/', '/api'], async (req, res) => {
     res.json({ 
       message: 'API is working',
       environment: process.env.NODE_ENV || 'development',
+      cors: {
+        allowedOrigins: corsOptions.origin.toString(),
+        credentials: corsOptions.credentials
+      },
       endpoints: {
         health: '/api/health',
+        corsTest: '/api/cors-test',
+        authTest: '/api/auth-test',
         users: '/api/users',
         passengers: '/api/passengers',
         trips: '/api/trips',
-        sites: '/api/sites' // Add this line
+        sites: '/api/sites'
       }
     });
   } catch (err) {
@@ -127,6 +188,17 @@ app.use((req, res, next) => {
 
 app.use((err, req, res, next) => {
   console.error('API Error:', err.stack);
+  
+  // Handle CORS errors specifically
+  if (err.message.includes('CORS')) {
+    return res.status(403).json({
+      error: 'CORS Error',
+      message: err.message,
+      origin: req.headers.origin,
+      allowedOrigins: corsOptions.origin.toString()
+    });
+  }
+  
   res.status(500).json({
     error: 'Internal Server Error',
     message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
@@ -141,16 +213,22 @@ if (process.env.VERCEL) {
   app.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log('Allowed CORS origins:', [
+    console.log('CORS Configuration:');
+    console.log('- Allowed Origins:', [
       'https://wells-logistics.vercel.app',
       'https://wells-logistics-dev.vercel.app',
       'http://localhost:5174',
-      process.env.FRONTEND_URL
+      process.env.FRONTEND_URL,
+      ...(process.env.NODE_ENV === 'development' ? ['All origins in dev mode'] : [])
     ].filter(Boolean).join(', '));
+    console.log('- Credentials:', corsOptions.credentials);
     console.log('Available routes:');
+    console.log('- /api/health - Health check');
+    console.log('- /api/cors-test - CORS test');
+    console.log('- /api/auth-test - Authentication test (protected)');
     console.log('- /api/users');
     console.log('- /api/passengers');
     console.log('- /api/trips');
-    console.log('- /api/sites'); // Add this line
+    console.log('- /api/sites');
   });
 }
