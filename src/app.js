@@ -1,4 +1,4 @@
-// src/app.js - CLEAN WORKING VERSION
+// src/app.js - ALLOW ALL ORIGINS (NO CORS RESTRICTIONS)
 require('dotenv').config();
 const express = require('express');
 const mongoose = require('mongoose');
@@ -6,39 +6,23 @@ const dbConnect = require('./lib/mongodb');
 
 const app = express();
 
-// ========== SIMPLE CORS ==========
+// ========== CORS: ALLOW EVERYTHING ==========
 app.use((req, res, next) => {
-  const allowedOrigins = [
-    'http://localhost:5174',
-    'https://wells-logistics.vercel.app',
-    'https://wells-logistics-dev.vercel.app',
-    // Match ALL Vercel preview deployments
-    /\.vercel\.app$/
-  ];
+  // Allow ALL origins - no restrictions
+  res.header('Access-Control-Allow-Origin', '*');
   
-  const origin = req.headers.origin;
+  // Allow all methods
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS, HEAD');
   
-  // Check if origin matches any allowed pattern
-  const isAllowed = allowedOrigins.some(pattern => {
-    if (typeof pattern === 'string') {
-      return origin === pattern;
-    }
-    if (pattern instanceof RegExp) {
-      return pattern.test(origin);
-    }
-    return false;
-  });
+  // Allow all headers
+  res.header('Access-Control-Allow-Headers', '*');
   
-  if (isAllowed || !origin) {
-    res.header('Access-Control-Allow-Origin', origin || '*');
-  }
+  // Allow credentials if needed (though * origin with credentials has limitations)
+  // res.header('Access-Control-Allow-Credentials', 'true');
   
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  
-  // Handle preflight requests
+  // Handle preflight requests immediately
   if (req.method === 'OPTIONS') {
+    console.log(`✅ Preflight allowed for: ${req.headers.origin || 'any origin'}`);
     return res.status(200).end();
   }
   
@@ -58,7 +42,6 @@ const initializeDB = () => {
 initializeDB();
 
 // ========== ROUTES ==========
-// Load routes directly (your routes work fine!)
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/passengers', require('./routes/passengerRoutes'));
 app.use('/api/trips', require('./routes/tripRoutes'));
@@ -79,8 +62,9 @@ app.get('/api/health', (req, res) => {
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || 'development',
     cors: {
+      policy: 'ALLOW ALL ORIGINS (*)',
       origin: req.headers.origin,
-      note: 'Configured for all Vercel deployments'
+      note: 'No CORS restrictions - any origin can access'
     }
   });
 });
@@ -92,6 +76,7 @@ app.get(['/', '/api'], (req, res) => {
     version: '1.0.0',
     environment: process.env.NODE_ENV || 'development',
     isVercel: !!process.env.VERCEL,
+    cors: 'ALLOW ALL ORIGINS (*) - No restrictions',
     endpoints: {
       health: '/api/health',
       users: '/api/users',
@@ -99,14 +84,7 @@ app.get(['/', '/api'], (req, res) => {
       trips: '/api/trips',
       sites: '/api/sites'
     },
-    cors: {
-      allowedOrigins: [
-        'http://localhost:5174',
-        'https://wells-logistics.vercel.app',
-        'https://wells-logistics-dev.vercel.app',
-        'All *.vercel.app domains'
-      ]
-    }
+    note: 'CORS is configured to allow ALL origins in ALL environments'
   });
 });
 
@@ -124,23 +102,10 @@ app.use((req, res) => {
 app.use((err, req, res, next) => {
   console.error('API Error:', err.stack);
   
-  // CORS-specific errors
-  if (err.message && err.message.includes('CORS')) {
-    return res.status(403).json({
-      error: 'CORS Error',
-      message: `Origin ${req.headers.origin || 'unknown'} not allowed`,
-      allowedOrigins: [
-        'http://localhost:5174',
-        'https://wells-logistics.vercel.app',
-        'https://wells-logistics-dev.vercel.app',
-        'All *.vercel.app domains'
-      ]
-    });
-  }
-  
   res.status(500).json({
     error: 'Internal Server Error',
-    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong'
+    message: process.env.NODE_ENV === 'development' ? err.message : 'Something went wrong',
+    cors: 'Note: CORS allows all origins (*)'
   });
 });
 
@@ -151,20 +116,20 @@ if (process.env.VERCEL) {
 } else {
   const PORT = process.env.PORT || 3000;
   app.listen(PORT, () => {
-    console.log('='.repeat(50));
-    console.log(`✅ Server running on port ${PORT}`);
+    console.log('='.repeat(60));
+    console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log('🔓 CORS: Enabled for:');
-    console.log('   • http://localhost:5174');
-    console.log('   • https://wells-logistics.vercel.app');
-    console.log('   • https://wells-logistics-dev.vercel.app');
-    console.log('   • All *.vercel.app domains (including previews)');
-    console.log('='.repeat(50));
+    console.log('🔓 CORS: ALLOWING ALL ORIGINS (*) - No restrictions');
+    console.log('='.repeat(60));
     console.log('\n📡 Available endpoints:');
-    console.log('   http://localhost:3000/api/health');
-    console.log('   http://localhost:3000/api/users');
-    console.log('   http://localhost:3000/api/passengers');
-    console.log('   http://localhost:3000/api/trips');
-    console.log('   http://localhost:3000/api/sites');
+    console.log(`   http://localhost:${PORT}/api/health`);
+    console.log(`   http://localhost:${PORT}/api/users`);
+    console.log(`   http://localhost:${PORT}/api/passengers`);
+    console.log(`   http://localhost:${PORT}/api/trips`);
+    console.log(`   http://localhost:${PORT}/api/sites`);
+    console.log('\n✅ CORS Status: ANY origin can access this API');
+    console.log('   • localhost:5174');
+    console.log('   • wells-logistics.vercel.app');
+    console.log('   • ANY other domain');
   });
 }
