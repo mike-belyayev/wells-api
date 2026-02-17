@@ -32,7 +32,26 @@ const TripSchema = new mongoose.Schema({
       message: 'Number of passengers must be a positive integer or empty'
     },
     default: null
+  },
+  // NEW: Sort indices for persistent ordering
+  sortIndices: {
+    type: Map,
+    of: {
+      type: Number,
+      min: 0
+    },
+    default: new Map() // This ensures backward compatibility
   }
+}, {
+  timestamps: true // Optional: adds createdAt and updatedAt automatically
+});
+
+// Optional: Add a pre-save middleware to ensure sortIndices exists
+TripSchema.pre('save', function(next) {
+  if (!this.sortIndices) {
+    this.sortIndices = new Map();
+  }
+  next();
 });
 
 module.exports = mongoose.model('Trip', TripSchema);

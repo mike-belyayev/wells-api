@@ -326,6 +326,57 @@ router.delete('/:id', async (req, res) => {
   }
 });
 
+// @route   PATCH /api/trips/:id/sort
+// @desc    Update trip sort indices
+router.patch('/:id/sort', async (req, res) => {
+  try {
+    await dbConnect(); // Ensure DB connection
+    
+    const { sortIndices } = req.body;
+
+    // Validate required field
+    if (sortIndices === undefined || sortIndices === null) {
+      return res.status(400).json({ 
+        error: 'Validation failed',
+        message: 'sortIndices field is required' 
+      });
+    }
+
+    // Validate it's an object or Map
+    if (typeof sortIndices !== 'object' || sortIndices === null) {
+      return res.status(400).json({ 
+        error: 'Validation failed',
+        message: 'sortIndices must be an object' 
+      });
+    }
+
+    // Convert plain object to Map if needed (Mongoose handles this automatically)
+    const updateData = { sortIndices };
+
+    const updatedTrip = await Trip.findByIdAndUpdate(
+      req.params.id,
+      { $set: updateData },
+      { 
+        new: true, 
+        runValidators: true,
+        maxTimeMS: 10000 
+      }
+    );
+
+    if (!updatedTrip) {
+      return res.status(404).json({ 
+        error: 'Not found',
+        message: 'Trip not found' 
+      });
+    }
+
+    console.log(`Updated sort indices for trip: ${updatedTrip._id}`);
+    res.json(updatedTrip);
+  } catch (err) {
+    handleError(res, err, 'Failed to update trip sort indices');
+  }
+});
+
 // @route   PATCH /api/trips/:id/passengers/increment
 // @desc    Increment number of passengers
 router.patch('/:id/passengers/increment', async (req, res) => {
